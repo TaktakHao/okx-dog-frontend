@@ -35,6 +35,7 @@ export const AICopilotCard: React.FC = () => {
     activeSymbol,
     activeTimeframe,
     ticker,
+    positions,
     aiAnalysis,
     setAIAnalysis,
     isAiAnalyzing,
@@ -49,12 +50,20 @@ export const AICopilotCard: React.FC = () => {
     riskRules,
   } = useAppStore();
 
+
   const [isThinkingExpanded, setIsThinkingExpanded] = useState(false);
   const [displayedThinking, setDisplayedThinking] = useState('');
   const [isAdoptModalOpen, setIsAdoptModalOpen] = useState(false);
   const [submittingOrder, setSubmittingOrder] = useState(false);
   const [orderError, setOrderError] = useState<string | null>(null);
   const [orderSuccess, setOrderSuccess] = useState<string | null>(null);
+
+  // 🤖 全自动量化巡检与事件驱动触发引擎状态
+  const [isAutoPilotEnabled, setIsAutoPilotEnabled] = useState(true);
+  const [autoTriggerReason, setAutoTriggerReason] = useState<string | null>(null);
+  const lastAnalyzedPriceRef = React.useRef<number>(0);
+  const lastAnalysisTimeRef = React.useRef<number>(Date.now());
+  const isTriggeringRef = React.useRef<boolean>(false);
 
   // 直接一键开仓状态提示
   const [directSuccessMsg, setDirectSuccessMsg] = useState<string | null>(null);
@@ -66,8 +75,6 @@ export const AICopilotCard: React.FC = () => {
   const [adoptSize, setAdoptSize] = useState('0.1');
   const [adoptLeverage, setAdoptLeverage] = useState(3);
   const [adoptEntryPrice, setAdoptEntryPrice] = useState<number>(ticker?.last_price || 63550);
-
-
 
   // 打字机渐显思维链效果
   useEffect(() => {
@@ -112,12 +119,17 @@ export const AICopilotCard: React.FC = () => {
     }
   }, [aiAnalysis, riskRules, ticker?.last_price]);
 
-
   /**
-   * 手动触发 AI 重新研判
+   * 触发 AI 策略研判（支持记录触发原因）
    */
-  const handleTriggerAnalysis = async () => {
+  const triggerAnalysisWithReason = async (reason?: string) => {
+    if (isTriggeringRef.current || isAiAnalyzing) return;
+    isTriggeringRef.current = true;
     setIsAiAnalyzing(true);
+    if (reason) setAutoTriggerReason(reason);
+    lastAnalysisTimeRef.current = Date.now();
+    if (ticker?.last_price) lastAnalyzedPriceRef.current = ticker.last_price;
+
     try {
       const result = await aiApi.triggerAnalysis({
         symbol: activeSymbol,
@@ -126,15 +138,63 @@ export const AICopilotCard: React.FC = () => {
       });
       setAIAnalysis(result);
     } catch (err) {
-      console.warn('[AI] 触发研判异常，使用高保真本地模型推演:', err);
-      // 模拟本地生成最新研判
-      setTimeout(() => {
-        setIsAiAnalyzing(false);
-      }, 1200);
+      console.warn('[AI] 触发研判异常:', err);
     } finally {
       setIsAiAnalyzing(false);
+      isTriggeringRef.current = false;
+      if (reason) {
+        setTimeout(() => setAutoTriggerReason(null), 6000);
+      }
     }
   };
+
+  /**
+   * 手动触发 AI 重新研判
+   */
+  const handleTriggerAnalysis = () => {
+    triggerAnalysisWithReason('交易员手动触发');
+  };
+
+  // 1. 事件驱动触发：市价突破 / 偏离阈值自动重新生成
+  useEffect(() => {
+    if (!isAutoPilotEnabled || !ticker?.last_price || isTriggeringRef.current) return;
+    const p = ticker.last_price;
+    if (lastAnalyzedPriceRef.current <= 0) {
+      lastAnalyzedPriceRef.current = p;
+      return;
+    }
+    const diffPct = Math.abs(p - lastAnalyzedPriceRef.current) / lastAnalyzedPriceRef.current;
+    // 当价格偏离超过 1.2% 且距离上次研判超过 20 秒时，自动触发更新
+    if (diffPct >= 0.012 && Date.now() - lastAnalysisTimeRef.current > 20000) {
+      triggerAnalysisWithReason(`价格偏离 ${(diffPct * 100).toFixed(1)}% 动态自愈重算`);
+    }
+  }, [ticker?.last_price, isAutoPilotEnabled]);
+
+  // 2. 事件驱动触发：持仓浮盈达标或防守预警自动触发调仓决策
+  useEffect(() => {
+    if (!isAutoPilotEnabled || isTriggeringRef.current || !Array.isArray(positions)) return;
+    const pos = positions.find((p) => p && p.symbol === activeSymbol && (p.pos_size ?? 0) > 0);
+    if (pos && pos.upl_ratio !== undefined) {
+      const ratio = pos.upl_ratio;
+      // 浮盈达标 >= 2.5% 或 浮亏 <= -1.5% 且距离上次超过 30 秒
+      if ((ratio >= 0.025 || ratio <= -0.015) && Date.now() - lastAnalysisTimeRef.current > 30000) {
+        const tag = ratio > 0 ? `浮盈达标 (+${(ratio * 100).toFixed(1)}%) 调仓建议` : `持仓防守预警 (${(ratio * 100).toFixed(1)}%) 动态止损`;
+        triggerAnalysisWithReason(tag);
+      }
+    }
+  }, [positions, isAutoPilotEnabled, activeSymbol]);
+
+  // 3. 定时心跳巡检：每 90 秒自动评估一次盘面
+  useEffect(() => {
+    if (!isAutoPilotEnabled) return;
+    const interval = setInterval(() => {
+      if (Date.now() - lastAnalysisTimeRef.current >= 90000 && !isTriggeringRef.current) {
+        triggerAnalysisWithReason('周期心跳自动巡检');
+      }
+    }, 15000);
+    return () => clearInterval(interval);
+  }, [isAutoPilotEnabled, activeSymbol, activeTimeframe]);
+
 
   /**
    * 执行一键采纳下单
@@ -325,6 +385,21 @@ export const AICopilotCard: React.FC = () => {
         </div>
 
         <div className="flex items-center space-x-1.5">
+          {/* 自动巡检状态切换 */}
+          <button
+            type="button"
+            onClick={() => setIsAutoPilotEnabled(!isAutoPilotEnabled)}
+            className={`flex items-center space-x-1 px-2 py-1 rounded text-[10px] font-mono font-medium transition-all cursor-pointer ${
+              isAutoPilotEnabled
+                ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
+                : 'bg-bg-elevated text-text-muted border border-bg-border'
+            }`}
+            title="开启/关闭 自动巡检与价格/盈亏异动自愈触发"
+          >
+            <span className={`w-1.5 h-1.5 rounded-full ${isAutoPilotEnabled ? 'bg-emerald-400 animate-pulse' : 'bg-text-muted'}`} />
+            <span>{isAutoPilotEnabled ? '自动巡检: 开' : '自动巡检: 关'}</span>
+          </button>
+
           <button
             onClick={handleTriggerAnalysis}
             disabled={isAiAnalyzing}
@@ -336,6 +411,15 @@ export const AICopilotCard: React.FC = () => {
           </button>
         </div>
       </div>
+
+      {/* 自动触发归因动态横条 */}
+      {autoTriggerReason && (
+        <div className="px-2.5 py-1 rounded bg-trade-ai/15 border border-trade-ai/30 text-trade-ai text-[11px] font-mono flex items-center space-x-1.5 animate-in fade-in">
+          <Zap className="w-3 h-3 text-amber-300 animate-bounce" />
+          <span>⚡ {autoTriggerReason}</span>
+        </div>
+      )}
+
 
       {/* 2. 核心信号与置信度 */}
       {aiAnalysis && (
