@@ -272,22 +272,39 @@ export const PositionList: React.FC = () => {
                 </thead>
                 <tbody className="divide-y divide-bg-border/60">
                   {positions.map((pos) => {
+                    const isSpot = pos.inst_type === 'SPOT' || (pos.pos_side?.toLowerCase() === 'net' && pos.leverage === 1);
+                    const isMargin = pos.inst_type === 'MARGIN';
                     const isLong = pos.pos_side?.toLowerCase() === 'long';
+                    const isShort = pos.pos_side?.toLowerCase() === 'short';
                     const upl = pos.upl ?? 0;
                     const uplRatio = (pos.upl_ratio ?? 0) * 100;
                     const isProfitable = upl >= 0;
 
                     return (
-                      <tr key={pos.pos_id || pos.id} className="hover:bg-bg-elevated/40 transition-colors">
+                      <tr key={pos.pos_id || pos.id || `${pos.symbol}-${pos.pos_side}`} className="hover:bg-bg-elevated/40 transition-colors">
                         <td className="py-2.5 px-3">
                           <div className="flex items-center space-x-1.5 font-bold">
-                            <span
-                              className={`px-1.5 py-0.5 rounded text-[10px] font-mono ${
-                                isLong ? 'bg-trade-up/15 text-trade-up border border-trade-up/30' : 'bg-trade-down/15 text-trade-down border border-trade-down/30'
-                              }`}
-                            >
-                              {isLong ? '做多' : '做空'} {pos.leverage}x
-                            </span>
+                            {isSpot ? (
+                              <span className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-indigo-500/15 text-indigo-400 border border-indigo-500/30">
+                                现货 1x
+                              </span>
+                            ) : isMargin ? (
+                              <span
+                                className={`px-1.5 py-0.5 rounded text-[10px] font-mono ${
+                                  isLong ? 'bg-amber-500/15 text-amber-400 border border-amber-500/30' : 'bg-trade-down/15 text-trade-down border border-trade-down/30'
+                                }`}
+                              >
+                                杠杆 {isLong ? '做多' : isShort ? '做空' : ''} {pos.leverage}x
+                              </span>
+                            ) : (
+                              <span
+                                className={`px-1.5 py-0.5 rounded text-[10px] font-mono ${
+                                  isLong ? 'bg-trade-up/15 text-trade-up border border-trade-up/30' : 'bg-trade-down/15 text-trade-down border border-trade-down/30'
+                                }`}
+                              >
+                                永续 {isLong ? '做多' : '做空'} {pos.leverage}x
+                              </span>
+                            )}
                             <span className="text-text-primary text-xs">{pos.symbol}</span>
                           </div>
                         </td>
@@ -297,32 +314,46 @@ export const PositionList: React.FC = () => {
                         <td className="py-2.5 px-3 text-text-secondary">${(pos.avg_price ?? 0).toLocaleString()}</td>
                         <td className="py-2.5 px-3 font-semibold text-text-primary">${(pos.mark_price ?? 0).toLocaleString()}</td>
                         <td className="py-2.5 px-3 font-bold">
-                          <span className={isProfitable ? 'text-trade-up' : 'text-trade-down'}>
-                            {isProfitable ? '+' : ''}${upl.toFixed(2)} ({isProfitable ? '+' : ''}{uplRatio.toFixed(2)}%)
-                          </span>
+                          {isSpot ? (
+                            <span className="text-text-muted font-normal">现货持有 (~${(pos.notional_usd ?? (pos.pos_size * (pos.mark_price ?? 0))).toFixed(2)})</span>
+                          ) : (
+                            <span className={isProfitable ? 'text-trade-up' : 'text-trade-down'}>
+                              {isProfitable ? '+' : ''}${upl.toFixed(2)} ({isProfitable ? '+' : ''}{uplRatio.toFixed(2)}%)
+                            </span>
+                          )}
                         </td>
                         <td className="py-2.5 px-3 text-trade-warning font-medium">
-                          {pos.liquidation_price ? `$${(pos.liquidation_price).toLocaleString()}` : '--'}
+                          {isSpot ? '--' : pos.liquidation_price ? `$${(pos.liquidation_price).toLocaleString()}` : '--'}
                         </td>
                         <td className="py-2.5 px-3 text-text-secondary">
                           ${(pos.margin ?? 0).toFixed(2)}
                         </td>
                         <td className="py-2.5 px-3">
-                          <div className="flex flex-col text-[10px] space-y-0.5">
-                            <span className="text-trade-up font-mono">
-                              TP: {pos.tp_trigger_price ? `$${pos.tp_trigger_price}` : '--'}
-                            </span>
-                            <span className="text-trade-down font-mono">
-                              SL: {pos.sl_trigger_price ? `$${pos.sl_trigger_price}` : '--'}
-                            </span>
-                            <button
-                              onClick={() => openTPSLModal(pos)}
-                              className="text-trade-ai hover:underline text-[9px] text-left cursor-pointer"
-                            >
-                              [修改]
-                            </button>
-                          </div>
+                          {isSpot ? (
+                            <span className="text-text-muted text-[10px]">现货资产</span>
+                          ) : (
+                            <div className="flex flex-col text-[10px] space-y-0.5">
+                              {pos.is_breakeven_locked && (
+                                <span className="inline-flex items-center text-[9px] font-bold text-trade-ai bg-trade-ai/15 px-1 py-0.2 rounded border border-trade-ai/30 w-max mb-0.5">
+                                  🛡️ 移动保本中
+                                </span>
+                              )}
+                              <span className="text-trade-up font-mono">
+                                TP: {pos.tp_trigger_price ? `$${pos.tp_trigger_price}` : (pos.tp_triggered_50 ? 'TP1已分批止盈' : '--')}
+                              </span>
+                              <span className="text-trade-down font-mono">
+                                SL: {pos.sl_trigger_price ? `$${pos.sl_trigger_price}` : '--'}
+                              </span>
+                              <button
+                                onClick={() => openTPSLModal(pos)}
+                                className="text-trade-ai hover:underline text-[9px] text-left cursor-pointer"
+                              >
+                                [修改]
+                              </button>
+                            </div>
+                          )}
                         </td>
+
                         <td className="py-2.5 px-3 text-right">
                           <div className="flex items-center justify-end space-x-1.5">
                             <button
@@ -330,20 +361,23 @@ export const PositionList: React.FC = () => {
                               disabled={riskStatus === 'PANIC_LOCKED'}
                               className="px-2.5 py-1 rounded bg-bg-elevated hover:bg-trade-down hover:text-white border border-bg-border text-text-secondary text-[10px] font-semibold transition-colors cursor-pointer"
                             >
-                              市价全平
+                              {isSpot ? '市价卖出' : '市价全平'}
                             </button>
-                            <button
-                              onClick={() => openCloseModal(pos, 'limit')}
-                              disabled={riskStatus === 'PANIC_LOCKED'}
-                              className="px-2.5 py-1 rounded bg-bg-elevated hover:bg-bg-border border border-bg-border text-text-secondary text-[10px] font-semibold transition-colors cursor-pointer"
-                            >
-                              限价平仓
-                            </button>
+                            {!isSpot && (
+                              <button
+                                onClick={() => openCloseModal(pos, 'limit')}
+                                disabled={riskStatus === 'PANIC_LOCKED'}
+                                className="px-2.5 py-1 rounded bg-bg-elevated hover:bg-bg-border border border-bg-border text-text-secondary text-[10px] font-semibold transition-colors cursor-pointer"
+                              >
+                                限价平仓
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>
                     );
                   })}
+
                 </tbody>
               </table>
             )}

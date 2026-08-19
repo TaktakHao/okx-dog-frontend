@@ -255,9 +255,13 @@ export type CredentialsStatusResponse = OkxCredentialMaskedInfo; // 别名兼容
  * 测试连通性请求
  */
 export interface TestConnectionRequest {
-  master_password: string;
+  master_password?: string;
   is_live_mode?: boolean;
+  api_key?: string;
+  secret_key?: string;
+  passphrase?: string;
 }
+
 
 /**
  * 连通性测试结果返回
@@ -743,9 +747,11 @@ export interface AIAdoptPayload {
   ai_analysis_id?: string | number;
   notional_usdt: number;
   notional_usd?: number;
+  copilot_mode?: CopilotMode;
 }
 
 export type AdoptAIPlanRequest = AIAdoptPayload;
+
 
 // =============================================================================
 // 6. 账户资产与持仓契约 (Account, Balances & Positions)
@@ -847,10 +853,15 @@ export interface PositionItem {
   tp_trigger_price?: number | null;
   /** 关联止损触发价 */
   sl_trigger_price?: number | null;
+  /** 是否已触发第一止盈并锁定移动保本 */
+  is_breakeven_locked?: boolean;
+  /** 是否已完成 50% 阶梯止盈 */
+  tp_triggered_50?: boolean;
   /** 是否触发强平预警 */
   is_danger_alert?: boolean;
   /** 与 OKX 同步时间戳 (ms) */
   last_synced_at?: number;
+
   /** 开仓时间戳 (ms) */
   created_at?: number;
   /** 最近更新时间戳 (ms) */

@@ -255,19 +255,30 @@ export const SecurityModal: React.FC = () => {
   };
 
   const handleTestOkxConnection = async () => {
+    // 若尚未保存且表单未填写完整，给出直观指引
+    const hasFormInputs = Boolean(apiKey.trim() && secretKey.trim() && passphrase.trim());
+    if (!hasFormInputs && !apiKeyMasked) {
+      setOkxErrorMsg('请先在表单中输入 API Key、Secret Key 与 Passphrase，或先点击右下角「加密保存凭证」！');
+      return;
+    }
+
     setOkxTestLoading(true);
     setOkxErrorMsg(null);
+    setOkxSuccessMsg(null);
     setOkxTestResult(null);
     try {
       const res = await vaultApi.testConnection({
         master_password: okxMasterPassword || 'OKXDog_Master_2026',
         is_live_mode: targetLiveMode,
+        api_key: apiKey.trim() || undefined,
+        secret_key: secretKey.trim() || undefined,
+        passphrase: passphrase.trim() || undefined,
       });
       setOkxTestResult(res);
       if (res.connected) {
         setOkxSuccessMsg(`OKX 连通成功！延迟: ${res.latency_ms}ms, 权限: ${res.permissions.join(', ')}`);
       } else {
-        setOkxErrorMsg(res.security_warning || '连通性测试未通过');
+        setOkxErrorMsg(res.security_warning || '连通性测试未通过，请检查 Key/Secret/Passphrase 是否正确及是否绑定 IP 白名单');
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : '测试异常';
@@ -276,6 +287,7 @@ export const SecurityModal: React.FC = () => {
       setOkxTestLoading(false);
     }
   };
+
 
   const handleClearOkxCredentials = async () => {
     if (!window.confirm(`确定要安全清除当前【${targetLiveMode ? '实盘' : '模拟盘'}】的 OKX API 凭证吗？`)) {
