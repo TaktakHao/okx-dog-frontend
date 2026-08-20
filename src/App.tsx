@@ -110,7 +110,7 @@ export const App: React.FC = () => {
     };
   }, [activeSymbol, setTicker, setPositions, setBalance, setOrders]);
 
-  // 2. 初始化拉取账户资产、最新行情、多周期指标与实时 AI 研判
+  // 2. 初始化与模式切换时拉取账户资产、最新行情、多周期指标与实时 AI 研判
   useEffect(() => {
     let isMounted = true;
     const initData = async () => {
@@ -129,8 +129,8 @@ export const App: React.FC = () => {
 
         if (tk.status === 'fulfilled') setTicker(tk.value);
         if (bal.status === 'fulfilled') setBalance(bal.value);
-        if (pos.status === 'fulfilled') setPositions(pos.value);
-        if (ord.status === 'fulfilled') setOrders(ord.value);
+        if (pos.status === 'fulfilled') setPositions(Array.isArray(pos.value) ? pos.value : []);
+        if (ord.status === 'fulfilled') setOrders(Array.isArray(ord.value) ? ord.value : []);
         if (ind.status === 'fulfilled') setIndicators(ind.value);
         if (ai.status === 'fulfilled') setAIAnalysis(ai.value);
       } catch (err) {
@@ -144,7 +144,21 @@ export const App: React.FC = () => {
     return () => {
       isMounted = false;
     };
-  }, [activeSymbol, setTicker, setBalance, setPositions, setOrders, setIndicators, setAIAnalysis, setIsAiAnalyzing]);
+  }, [activeSymbol, isLiveMode, setTicker, setBalance, setPositions, setOrders, setIndicators, setAIAnalysis, setIsAiAnalyzing]);
+
+  // 3. 定时主动轮询账户资产 (每 5 秒)，保障即便在长连接空闲期实盘资产也 100% 准确同步
+  useEffect(() => {
+    const balanceTimer = setInterval(() => {
+      tradeApi.getAccountBalance()
+        .then((bal) => {
+          if (bal) setBalance(bal);
+        })
+        .catch(() => {});
+    }, 5000);
+
+    return () => clearInterval(balanceTimer);
+  }, [isLiveMode, setBalance]);
+
 
   // 顶部 Panic 快捷全平点击
 
@@ -450,24 +464,38 @@ export const App: React.FC = () => {
         <section className="col-span-12 md:col-span-4 lg:col-span-3 flex flex-col space-y-2 overflow-hidden">
           {/* 资产看板微卡 */}
           {(() => {
-            const totalEquity = balance?.total_equity_usdt ?? 10000.0;
-            const todayPnl = (balance?.today_realized_pnl_usdt ?? 0) + (balance?.unrealized_pnl_usdt ?? 0);
-            const todayRatio = balance?.today_pnl_ratio !== undefined ? balance.today_pnl_ratio * 100 : ((todayPnl / 10000.0) * 100);
-            const isPnlPositive = todayPnl >= 0;
-            const availMargin = balance?.available_margin_usdt ?? 10000.0;
-            const usedMargin = balance?.used_margin_usdt ?? 0.0;
+            const totalEquity = balance?.total_equity_usdt !== undefined && balance.total_equity_usdt !== null
+              ? balance.total_equity_usdt
+              : (isLiveMode ? 0.0 : 10000.0);
+            const todayRealized = balance?.today_realized_pnl_usdt ?? 0.0;
             const upl = balance?.unrealized_pnl_usdt ?? 0.0;
+            const todayPnl = todayRealized + upl;
+            const todayRatio = balance?.today_pnl_ratio !== undefined
+              ? balance.today_pnl_ratio * 100
+              : (totalEquity > 0 ? (todayPnl / totalEquity) * 100 : 0.0);
+            const isPnlPositive = todayPnl >= 0;
+            const availMargin = balance?.available_margin_usdt !== undefined && balance.available_margin_usdt !== null
+              ? balance.available_margin_usdt
+              : (isLiveMode ? 0.0 : 10000.0);
+            const usedMargin = balance?.used_margin_usdt ?? 0.0;
 
             return (
               <div className="rounded-lg border border-bg-border bg-bg-secondary p-3 flex flex-col shrink-0 space-y-2">
                 <div className="flex items-center justify-between">
-                  <span className="text-[11px] font-semibold text-text-muted">总资产权益 (USDT)</span>
-                  <span className="text-[9px] px-1.5 py-0.2 rounded bg-trade-up/15 text-trade-up font-mono font-medium">
+                  <div className="flex items-center space-x-1.5">
+                    <span className="text-[11px] font-semibold text-text-muted">
+                      {isLiveMode ? 'OKX 实盘账户总权益' : '模拟操盘沙盒总权益'} (USDT)
+                    </span>
+                    <span className={`text-[9px] px-1 py-0.2 rounded font-mono font-medium ${isLiveMode ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30' : 'bg-blue-500/20 text-blue-400 border border-blue-500/30'}`}>
+                      {isLiveMode ? '实盘' : '模拟'}
+                    </span>
+                  </div>
+                  <span className={`text-[9px] px-1.5 py-0.2 rounded font-mono font-medium ${balance?.is_warning_margin ? 'bg-trade-down/20 text-trade-down border border-trade-down/40' : 'bg-trade-up/15 text-trade-up'}`}>
                     {balance?.is_warning_margin ? '保证金警告' : '风控安全'}
                   </span>
                 </div>
                 <div className="font-mono-num text-2xl font-bold text-text-primary">
-                  ${totalEquity.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  ${totalEquity.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })}
                 </div>
 
                 <div className="grid grid-cols-2 gap-2 text-[11px] pt-1.5 border-t border-bg-border/60 font-mono-num">
@@ -492,6 +520,7 @@ export const App: React.FC = () => {
               </div>
             );
           })()}
+
 
 
           {/* 下单控制面板 */}
