@@ -171,15 +171,19 @@ export const App: React.FC = () => {
 
   const handleSwitchToDemo = async () => {
     setModeSwitchLoading(true);
+    setPositions([]);
+    setOrders([]);
     try {
       await systemApi.switchMode(false);
       setLiveMode(false);
-      const [bal, pos] = await Promise.allSettled([
+      const [bal, pos, ord] = await Promise.allSettled([
         tradeApi.getAccountBalance(),
         tradeApi.getPositions(),
+        tradeApi.getOrders(),
       ]);
       if (bal.status === 'fulfilled') setBalance(bal.value);
-      if (pos.status === 'fulfilled') setPositions(pos.value);
+      if (pos.status === 'fulfilled') setPositions(Array.isArray(pos.value) ? pos.value : []);
+      if (ord.status === 'fulfilled') setOrders(Array.isArray(ord.value) ? ord.value : []);
     } catch (err) {
       console.warn('切换到模拟模式异常:', err);
     } finally {
@@ -190,16 +194,20 @@ export const App: React.FC = () => {
   const handleConfirmSwitchToLive = async () => {
     setModeSwitchLoading(true);
     setModeSwitchError(null);
+    setPositions([]);
+    setOrders([]);
     try {
       await systemApi.switchMode(true, liveMasterPassword);
       setLiveMode(true);
       setIsLiveConfirmModalOpen(false);
-      const [bal, pos] = await Promise.allSettled([
+      const [bal, pos, ord] = await Promise.allSettled([
         tradeApi.getAccountBalance(),
         tradeApi.getPositions(),
+        tradeApi.getOrders(),
       ]);
       if (bal.status === 'fulfilled') setBalance(bal.value);
-      if (pos.status === 'fulfilled') setPositions(pos.value);
+      if (pos.status === 'fulfilled') setPositions(Array.isArray(pos.value) ? pos.value : []);
+      if (ord.status === 'fulfilled') setOrders(Array.isArray(ord.value) ? ord.value : []);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : '切换失败';
       setModeSwitchError(msg);
@@ -207,6 +215,7 @@ export const App: React.FC = () => {
       setModeSwitchLoading(false);
     }
   };
+
 
   return (
     <div className="flex h-screen w-screen flex-col bg-bg-primary text-text-primary overflow-hidden font-sans select-none">

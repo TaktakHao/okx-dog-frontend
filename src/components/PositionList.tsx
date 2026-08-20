@@ -21,7 +21,7 @@ import { tradeApi } from '../services/api';
 import { PositionModel, PositionTPSLRequest, OrderModel } from '../types';
 
 export const PositionList: React.FC = () => {
-  const { positions, setPositions, orders, setOrders, riskStatus } = useAppStore();
+  const { positions, setPositions, orders, setOrders, riskStatus, isLiveMode } = useAppStore();
 
   const [activeTab, setActiveTab] = useState<'positions' | 'orders' | 'history'>('positions');
   const [loading, setLoading] = useState(false);
@@ -67,10 +67,10 @@ export const PositionList: React.FC = () => {
     }
   };
 
-  // 切换 Tab 时自动拉取对应数据
+  // 切换 Tab 或环境模式 (实盘 / 模拟) 时立刻拉取对应环境数据
   useEffect(() => {
     handleRefreshData();
-  }, [activeTab]);
+  }, [activeTab, isLiveMode]);
 
   // 定时刷新活跃持仓与挂单
   useEffect(() => {
@@ -82,7 +82,8 @@ export const PositionList: React.FC = () => {
       }
     }, 4000);
     return () => clearInterval(timer);
-  }, [activeTab, setPositions, setOrders]);
+  }, [activeTab, isLiveMode, setPositions, setOrders]);
+
 
   /**
    * 打开调整 TP/SL 弹窗
