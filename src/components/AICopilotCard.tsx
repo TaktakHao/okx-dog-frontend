@@ -37,6 +37,7 @@ export const AICopilotCard: React.FC = () => {
     ticker,
     positions,
     balance,
+    isLiveMode,
     aiAnalysis,
     setAIAnalysis,
     isAiAnalyzing,
@@ -50,6 +51,7 @@ export const AICopilotCard: React.FC = () => {
     riskStatus,
     riskRules,
   } = useAppStore();
+
 
 
 
@@ -120,11 +122,17 @@ export const AICopilotCard: React.FC = () => {
     return () => clearInterval(interval);
   }, [aiAnalysis?.thinking_process]);
 
-  // 💡 智能动态仓位计算器：基于账户可用净值、2% 单笔风险预算与 ATR/止损距离科学计算
-  const getSmartPositionSize = (curPx: number, slPrice: number) => {
-    const totalEquity = balance?.total_equity_usdt || balance?.available_margin_usdt || 10000;
-    const riskRatio = 0.02; // 单笔最大允许风险 2%
-    const riskBudgetUsdt = totalEquity * riskRatio;
+  // 💡 智能动态仓位计算器：严格基于实盘剩余可用资金 / 模拟沙盒净值与止损距离科学计算
+  const getSmartPositionSize = (curPx: number, slPrice: number, levOverride?: number) => {
+    const rawAvail = balance?.available_margin_usdt !== undefined ? balance.available_margin_usdt : (isLiveMode ? 0 : 10000);
+    const rawEquity = balance?.total_equity_usdt !== undefined ? balance.total_equity_usdt : (isLiveMode ? 0 : 10000);
+    const effectiveFunds = Math.max(0, rawAvail > 0 ? rawAvail : rawEquity);
+
+    const effLev = levOverride || (isAutoLeverageEnabled ? Math.min(aiAnalysis?.trade_plan?.suggested_leverage || adoptLeverage || 3, riskRules.max_leverage || 5) : Math.min(adoptLeverage || 3, riskRules.max_leverage || 5));
+
+    // 单笔 2% 风险预算 (基于当前可用资金核算)
+    const riskRatio = 0.02;
+    const riskBudgetUsdt = Math.max(1.0, effectiveFunds * riskRatio);
     const stopDistance = Math.abs(curPx - slPrice);
     const safeStopDistance = Math.max(stopDistance, curPx * 0.008); // 至少 0.8% 止损跨度
 
@@ -132,29 +140,39 @@ export const AICopilotCard: React.FC = () => {
     let calcCoins = riskBudgetUsdt / safeStopDistance;
     let notional = calcCoins * curPx;
 
-    // 硬风控限额强力封顶 (max_order_usdt)
-    const maxOrderCap = (riskRules.max_order_usdt && riskRules.max_order_usdt > 1000) ? riskRules.max_order_usdt : 50000;
-    if (notional > maxOrderCap * 0.95) {
-      notional = maxOrderCap * 0.95;
+    // 可用资金与杠杆允许的最大开仓上限 (预留 5% 缓冲，防止保证金不足被 OKX 拒绝)
+    const maxMarginBudget = effectiveFunds * 0.95;
+    const maxAffordableNotional = maxMarginBudget * effLev;
+
+    // 硬风控限额强力封顶 (max_order_usdt) 与 可用保证金上限双重约束
+    const maxOrderCap = (riskRules.max_order_usdt && riskRules.max_order_usdt > 100) ? riskRules.max_order_usdt : 50000;
+    const finalNotionalCap = Math.min(maxOrderCap * 0.95, maxAffordableNotional > 0 ? maxAffordableNotional : 10);
+
+    if (notional > finalNotionalCap) {
+      notional = finalNotionalCap;
       calcCoins = notional / curPx;
     }
 
     const precision = curPx >= 1000 ? 3 : curPx >= 10 ? 2 : 1;
     const factor = Math.pow(10, precision);
-    // 强制向下舍入 (Math.floor)，杜绝向上进位导致名义金额微小超标触发硬风控
     let formattedCoins = Math.floor(calcCoins * factor) / factor;
-    if (formattedCoins <= 0) {
-      formattedCoins = curPx >= 1000 ? 0.005 : 0.1;
+    if (formattedCoins <= 0 && effectiveFunds > 5) {
+      formattedCoins = curPx >= 1000 ? 0.001 : 0.1;
     }
     const realNotional = Number((formattedCoins * curPx).toFixed(2));
+    const requiredMargin = effLev > 0 ? realNotional / effLev : realNotional;
+
     return {
       coins: formattedCoins,
       notional: realNotional,
+      requiredMargin: Number(requiredMargin.toFixed(2)),
+      effectiveFunds: Number(effectiveFunds.toFixed(2)),
       riskBudgetUsdt: Number(riskBudgetUsdt.toFixed(2)),
       stopDistance: Number(safeStopDistance.toFixed(1)),
       riskPctText: '2.0%',
     };
   };
+
 
 
   // 记录上次已初始化的分析 ID，避免因 ticker WebSocket 持续推流导致用户表单参数被无限重置
@@ -246,9 +264,10 @@ export const AICopilotCard: React.FC = () => {
       ? Math.min(plan?.suggested_leverage || 3, riskRules.max_leverage || 5)
       : Math.min(adoptLeverage, riskRules.max_leverage || 5);
 
-    const smartSizing = getSmartPositionSize(curPx, slPrice);
+    const smartSizing = getSmartPositionSize(curPx, slPrice, autoLev);
     const finalCoins = smartSizing.coins;
     const finalNotional = smartSizing.notional;
+
 
     const payload: AIAdoptPayload = {
       symbol: activeSymbol,
@@ -500,10 +519,11 @@ export const AICopilotCard: React.FC = () => {
       }
     }
 
-    // 依据 2% 风险预算与止损距离智能核算最佳开仓币数
-    const smartSizing = getSmartPositionSize(curPx, slPrice);
+    // 依据 2% 风险预算与止损距离智能核算最佳开仓币数 (基于实盘剩余资金与杠杆上限)
+    const smartSizing = getSmartPositionSize(curPx, slPrice, lev);
     const finalSize = smartSizing.coins;
     const notional = smartSizing.notional;
+
 
     const payload: AIAdoptPayload = {
       symbol: activeSymbol,
@@ -886,20 +906,27 @@ export const AICopilotCard: React.FC = () => {
       )}
 
       {/* 智能动态仓位计算展示 */}
-      {aiAnalysis && (
-        <div className="flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-bg-elevated/70 border border-bg-border/60 text-[11px]">
-          <span className="text-text-muted flex items-center space-x-1">
-            <ShieldCheck className="w-3.5 h-3.5 text-trade-ai" />
-            <span>智能建议仓位 (2% 风险预算):</span>
-          </span>
-          <span className="font-mono font-bold text-text-primary">
-            {getSmartPositionSize(ticker?.last_price || 63550, aiAnalysis.trade_plan?.stop_loss_price || (ticker?.last_price || 63550) * 0.985).coins} BTC
-            <span className="text-text-muted font-normal ml-1">
-              (~${getSmartPositionSize(ticker?.last_price || 63550, aiAnalysis.trade_plan?.stop_loss_price || (ticker?.last_price || 63550) * 0.985).notional} USDT)
+      {aiAnalysis && (() => {
+        const cur = ticker?.last_price || 63550;
+        const sl = aiAnalysis.trade_plan?.stop_loss_price || cur * 0.985;
+        const lev = isAutoLeverageEnabled ? Math.min(aiAnalysis.trade_plan?.suggested_leverage || adoptLeverage || 3, riskRules.max_leverage || 5) : Math.min(adoptLeverage || 3, riskRules.max_leverage || 5);
+        const sizing = getSmartPositionSize(cur, sl, lev);
+        return (
+          <div className="flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-bg-elevated/70 border border-bg-border/60 text-[11px]">
+            <span className="text-text-muted flex items-center space-x-1">
+              <ShieldCheck className="w-3.5 h-3.5 text-trade-ai" />
+              <span>智能建仓 ({isLiveMode ? '实盘' : '模拟'} 2% 风险):</span>
             </span>
-          </span>
-        </div>
-      )}
+            <span className="font-mono font-bold text-text-primary">
+              {sizing.coins} BTC
+              <span className="text-text-muted font-normal ml-1">
+                (~${sizing.notional} USDT | 占用保 ${sizing.requiredMargin} U)
+              </span>
+            </span>
+          </div>
+        );
+      })()}
+
 
       <div className="flex items-center space-x-2 pt-0.5">
         <button
@@ -1019,8 +1046,9 @@ export const AICopilotCard: React.FC = () => {
                     onClick={() => {
                       const cur = adoptOrderType === 'market' ? (ticker?.last_price || 63550) : adoptEntryPrice;
                       const sl = aiAnalysis.trade_plan?.stop_loss_price || (cur * 0.985);
-                      const smart = getSmartPositionSize(cur, sl);
+                      const smart = getSmartPositionSize(cur, sl, adoptLeverage);
                       setAdoptSize(String(smart.coins));
+
                     }}
                     className="px-1.5 py-0.5 rounded bg-trade-ai/15 hover:bg-trade-ai/30 text-trade-ai text-[10px] font-semibold cursor-pointer transition-colors"
                     title="按账户 2% 风险预算与止损距离自动推导"
@@ -1072,8 +1100,16 @@ export const AICopilotCard: React.FC = () => {
                   const numSz = parseFloat(adoptSize) || 0;
                   const notionalVal = (estPx * numSz).toFixed(2);
                   const marginVal = (parseFloat(notionalVal) / Math.max(1, adoptLeverage)).toFixed(2);
+                  const currentAvail = balance?.available_margin_usdt !== undefined ? balance.available_margin_usdt : (isLiveMode ? 0.0 : 10000.0);
+                  const isExceeded = parseFloat(marginVal) > currentAvail;
                   return (
                     <>
+                      <div className="flex justify-between text-[11px]">
+                        <span className="text-text-muted">当前可用保证金:</span>
+                        <span className="font-mono-num text-text-primary font-bold">
+                          ${currentAvail.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDT {isLiveMode ? '【实盘】' : '【模拟】'}
+                        </span>
+                      </div>
                       <div className="flex justify-between text-[11px]">
                         <span className="text-text-muted">名义总金额 (USDT):</span>
                         <span className="font-mono-num text-text-primary font-bold">
@@ -1082,14 +1118,15 @@ export const AICopilotCard: React.FC = () => {
                       </div>
                       <div className="flex justify-between text-[11px]">
                         <span className="text-text-muted">预计占用保证金:</span>
-                        <span className="font-mono-num text-trade-ai font-semibold">
-                          ${marginVal} USDT ({adoptLeverage}x)
+                        <span className={`font-mono-num font-semibold ${isExceeded ? 'text-trade-down' : 'text-trade-ai'}`}>
+                          ${marginVal} USDT ({adoptLeverage}x) {isExceeded ? '(超出可用余额)' : ''}
                         </span>
                       </div>
                     </>
                   );
                 })()}
               </div>
+
 
 
 

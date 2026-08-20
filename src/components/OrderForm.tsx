@@ -25,6 +25,7 @@ export const OrderForm: React.FC = () => {
     activeSymbol,
     ticker,
     balance,
+    isLiveMode,
     selectedPrice,
     setSelectedPrice,
     adoptedOrderParams,
@@ -36,6 +37,7 @@ export const OrderForm: React.FC = () => {
     riskRules,
     triggerPanicLock,
   } = useAppStore();
+
 
 
   // 交易模式配置
@@ -117,7 +119,7 @@ export const OrderForm: React.FC = () => {
   const numSize = parseFloat(size) || 0;
   const notionalUsdt = numPrice * numSize;
   const requiredMargin = leverage > 0 ? notionalUsdt / leverage : notionalUsdt;
-  const availMargin = balance?.available_margin_usdt || 10000.0;
+  const availMargin = balance?.available_margin_usdt !== undefined ? balance.available_margin_usdt : (isLiveMode ? 0.0 : 10000.0);
 
 
   // 实时盈亏比计算 (R:R Ratio)
