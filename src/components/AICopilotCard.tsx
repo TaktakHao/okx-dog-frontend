@@ -294,10 +294,10 @@ export const AICopilotCard: React.FC = () => {
   };
 
   /**
-   * 触发 AI 策略研判（支持记录触发原因）
+   * 触发 AI 策略研判（支持记录触发原因与强制触发）
    */
-  const triggerAnalysisWithReason = async (reason?: string) => {
-    if (isTriggeringRef.current || isAiAnalyzing) return;
+  const triggerAnalysisWithReason = async (reason?: string, force: boolean = false) => {
+    if (!force && (isTriggeringRef.current || isAiAnalyzing)) return;
     isTriggeringRef.current = true;
     setIsAiAnalyzing(true);
     if (reason) setAutoTriggerReason(reason);
@@ -310,7 +310,9 @@ export const AICopilotCard: React.FC = () => {
         timeframe: activeTimeframe,
         include_thinking: true,
       });
-      setAIAnalysis(result);
+      if (result) {
+        setAIAnalysis(result);
+      }
 
       // 若开启全自动量化托管交易，且处于就绪状态，立即触发自动交易执行判断
       if (isAutoTradeEnabled && result) {
@@ -331,8 +333,9 @@ export const AICopilotCard: React.FC = () => {
    * 手动触发 AI 重新研判
    */
   const handleTriggerAnalysis = () => {
-    triggerAnalysisWithReason('交易员手动触发');
+    triggerAnalysisWithReason('交易员手动触发', true);
   };
+
 
 
   // 1. 事件驱动触发：市价突破 / 偏离阈值自动重新生成
