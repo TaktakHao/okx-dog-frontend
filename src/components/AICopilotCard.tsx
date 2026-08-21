@@ -29,6 +29,11 @@ import {
 import { useAppStore } from '../store/useAppStore';
 import { aiApi, tradeApi } from '../services/api';
 import { SignalAction, AIAdoptPayload } from '../types';
+import {
+  getBaseCurrency,
+  getSymbolBadge,
+  formatPrice,
+} from '../utils/symbolHelper';
 
 export const AICopilotCard: React.FC = () => {
   const {
@@ -69,25 +74,6 @@ export const AICopilotCard: React.FC = () => {
   const lastAnalysisTimeRef = React.useRef<number>(Date.now());
   const isTriggeringRef = React.useRef<boolean>(false);
 
-  // ⚡ 全自动量化托管交易引擎状态 (Full-Auto Trading Execution)
-  const [isAutoTradeEnabled, setIsAutoTradeEnabled] = useState<boolean>(() => {
-    const saved = localStorage.getItem('okx_dog_auto_trade_enabled');
-    return saved !== null ? saved === 'true' : true; // 默认开启全自动交易
-  });
-  const [autoTradeMinConfidence, setAutoTradeMinConfidence] = useState<number>(() => {
-    const saved = localStorage.getItem('okx_dog_auto_trade_min_conf');
-    return saved ? parseFloat(saved) : 0.70;
-  });
-  const [isAutoLeverageEnabled, setIsAutoLeverageEnabled] = useState<boolean>(true);
-  const [isAutoTradeConfigOpen, setIsAutoTradeConfigOpen] = useState<boolean>(false);
-  const autoTradeExecutedIdRef = React.useRef<string | null>(null);
-
-  // 切换全自动操盘开关并持久化
-  const handleToggleAutoTrade = (enabled: boolean) => {
-    setIsAutoTradeEnabled(enabled);
-    localStorage.setItem('okx_dog_auto_trade_enabled', String(enabled));
-  };
-
   // 直接一键开仓状态提示
   const [directSuccessMsg, setDirectSuccessMsg] = useState<string | null>(null);
   const [directErrorMsg, setDirectErrorMsg] = useState<string | null>(null);
@@ -127,10 +113,7 @@ export const AICopilotCard: React.FC = () => {
     const rawAvail = balance?.available_margin_usdt !== undefined ? balance.available_margin_usdt : (isLiveMode ? 0 : 10000);
     const rawEquity = balance?.total_equity_usdt !== undefined ? balance.total_equity_usdt : (isLiveMode ? 0 : 10000);
     const effectiveFunds = Math.max(0, rawAvail > 0 ? rawAvail : rawEquity);
-
-    const effLev = levOverride || (isAutoLeverageEnabled ? Math.min(aiAnalysis?.trade_plan?.suggested_leverage || adoptLeverage || 3, riskRules.max_leverage || 5) : Math.min(adoptLeverage || 3, riskRules.max_leverage || 5));
-
-    // 单笔 2% 风险预算 (基于当前可用资金核算)
+    const effLev = levOverride || Math.min(aiAnalysis?.trade_plan?.suggested_leverage || adoptLeverage || 3, riskRules.max_leverage || 5);
     const riskRatio = 0.02;
     const riskBudgetUsdt = Math.max(1.0, effectiveFunds * riskRatio);
     const stopDistance = Math.abs(curPx - slPrice);
@@ -204,115 +187,6 @@ export const AICopilotCard: React.FC = () => {
   }, [aiAnalysis?.analysis_id, (aiAnalysis as any)?.analysis_uuid]);
 
   /**
-   * 🤖 全自动量化托管自动执行开仓引擎
-   */
-  const executeAutoTrade = async (analysis: any) => {
-    if (!isAutoTradeEnabled || riskStatus === 'PANIC_LOCKED' || !analysis?.signal) return;
-
-    const action = analysis.signal?.action;
-    const confidence = analysis.signal?.confidence ?? 0;
-    const analysisId = String(analysis.analysis_id || (analysis as any).analysis_uuid || Date.now());
-
-    // 避免同一研判 ID 重复执行开仓
-    if (autoTradeExecutedIdRef.current === analysisId) {
-      return;
-    }
-
-    // 1. 只有明确方向 (BUY_LONG 或 SELL_SHORT) 且置信度达到设定门槛才触发自动执行
-    if (action !== 'BUY_LONG' && action !== 'SELL_SHORT') {
-      console.log(`[AI全自动操盘] 策略建议观望 (${action})，暂不自动开仓`);
-      return;
-    }
-    if (confidence < autoTradeMinConfidence) {
-      console.log(`[AI全自动操盘] 信号置信度 ${(confidence * 100).toFixed(0)}% 低于门槛 ${(autoTradeMinConfidence * 100).toFixed(0)}%，暂不执行`);
-      return;
-    }
-
-    const isShort = action === 'SELL_SHORT';
-    const isLong = !isShort;
-
-    // 2. 检查当前是否已持有该标的的同向仓位，避免重复开仓过度累积风险
-    const currentPositions = Array.isArray(positions) ? positions : [];
-    const existingPos = currentPositions.find(
-      (p) => p && p.symbol === activeSymbol && (p.pos_size ?? 0) > 0
-    );
-    if (existingPos) {
-      const existingSide = existingPos.pos_side?.toLowerCase();
-      if ((isLong && existingSide === 'long') || (isShort && existingSide === 'short')) {
-        console.log(`[AI全自动操盘] 当前已持有 ${activeSymbol} ${existingSide} 仓位，保持现有持仓并继续监控`);
-        return;
-      }
-    }
-
-    // 3. 智能动态仓位计算与杠杆自适应
-    const plan = analysis.trade_plan || (analysis as any).action_plan;
-    const curPx = ticker?.last_price || 63550;
-    let slPrice = plan?.stop_loss_price;
-    let tp1Price = plan?.take_profit_levels?.[0]?.price;
-    let tp2Price = plan?.take_profit_levels?.[1]?.price;
-
-    if (isLong) {
-      if (!slPrice || slPrice <= 0 || slPrice >= curPx) slPrice = curPx * 0.985;
-      if (!tp1Price || tp1Price <= 0 || tp1Price <= curPx) tp1Price = curPx * 1.025;
-    } else {
-      if (!slPrice || slPrice <= 0 || slPrice <= curPx) slPrice = curPx * 1.015;
-      if (!tp1Price || tp1Price <= 0 || tp1Price >= curPx) tp1Price = curPx * 0.975;
-    }
-
-    // 自适应杠杆调节：若开启自动杠杆，跟随 AI 建议 (1x~5x)，封顶受限于硬风控最大杠杆
-    const autoLev = isAutoLeverageEnabled
-      ? Math.min(plan?.suggested_leverage || 3, riskRules.max_leverage || 5)
-      : Math.min(adoptLeverage, riskRules.max_leverage || 5);
-
-    const smartSizing = getSmartPositionSize(curPx, slPrice, autoLev);
-    const finalCoins = smartSizing.coins;
-    const finalNotional = smartSizing.notional;
-
-
-    const payload: AIAdoptPayload = {
-      symbol: activeSymbol,
-      action: isShort ? 'SELL_SHORT' : 'BUY_LONG',
-      entry_price: curPx,
-      selected_entry_price: curPx,
-      stop_loss_price: Number(slPrice.toFixed(curPx >= 100 ? 1 : 4)),
-      take_profit_target_1: tp1Price ? Number(tp1Price.toFixed(curPx >= 100 ? 1 : 4)) : undefined,
-      take_profit_target_2: tp2Price ? Number(tp2Price.toFixed(curPx >= 100 ? 1 : 4)) : undefined,
-      suggested_leverage: autoLev,
-      leverage: autoLev,
-      order_type: 'market',
-      confidence_score: Math.round(confidence * 100),
-      analysis_id: analysisId,
-      notional_usdt: finalNotional,
-    };
-
-    try {
-      autoTradeExecutedIdRef.current = analysisId;
-      setIsDirectSubmitting(true);
-      await tradeApi.adoptAIPlan(payload);
-
-      const [posRes, balRes, ordRes] = await Promise.allSettled([
-        tradeApi.getPositions(),
-        tradeApi.getAccountBalance(),
-        tradeApi.getOrders(),
-      ]);
-      if (posRes.status === 'fulfilled') setPositions(posRes.value);
-      if (balRes.status === 'fulfilled') setBalance(balRes.value);
-      if (ordRes.status === 'fulfilled') setOrders(ordRes.value);
-
-      const successText = `🤖 [AI全自动操盘] 已自适应开仓【${isLong ? '买入开多' : '卖出开空'}】 ${finalCoins} BTC (杠杆 ${autoLev}x @ $${curPx.toLocaleString()}, 止损 $${slPrice.toFixed(1)}, TP1 $${tp1Price?.toFixed(1)})`;
-      setDirectSuccessMsg(successText);
-      setTimeout(() => setDirectSuccessMsg(null), 8000);
-    } catch (err: unknown) {
-      const errMsg = err instanceof Error ? err.message : '全自动开仓失败';
-      console.warn('[AI全自动操盘] 开仓失败:', errMsg);
-      setDirectErrorMsg(`[AI全自动开仓失败] ${errMsg}`);
-      setTimeout(() => setDirectErrorMsg(null), 6000);
-    } finally {
-      setIsDirectSubmitting(false);
-    }
-  };
-
-  /**
    * 触发 AI 策略研判（支持记录触发原因与强制触发）
    */
   const triggerAnalysisWithReason = async (reason?: string, force: boolean = false) => {
@@ -331,11 +205,6 @@ export const AICopilotCard: React.FC = () => {
       });
       if (result) {
         setAIAnalysis(result);
-      }
-
-      // 若开启全自动量化托管交易，且处于就绪状态，立即触发自动交易执行判断
-      if (isAutoTradeEnabled && result) {
-        await executeAutoTrade(result);
       }
     } catch (err) {
       console.warn('[AI] 触发研判异常:', err);
@@ -555,7 +424,7 @@ export const AICopilotCard: React.FC = () => {
       if (ordRes.status === 'fulfilled') setOrders(ordRes.value);
 
       const actionText = isLong ? '买入开多' : '卖出开空';
-      setDirectSuccessMsg(`⚡ AI 策略已自动市价开仓！(${actionText} ${finalSize} BTC @ $${curPx.toLocaleString()}, 名义 $${notional} USDT)`);
+      setDirectSuccessMsg(`⚡ AI 策略已自动市价开仓！(${actionText} ${finalSize} ${getBaseCurrency(activeSymbol)} @ $${formatPrice(curPx, activeSymbol)}, 名义 $${notional} USDT)`);
       setTimeout(() => setDirectSuccessMsg(null), 4000);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : '自动下单失败';
@@ -614,6 +483,15 @@ export const AICopilotCard: React.FC = () => {
             <h3 className="text-xs font-bold text-text-primary flex items-center space-x-1">
               <span>AI 智能交易副驾驶</span>
               <Sparkles className="w-3 h-3 text-amber-400" />
+              <span className="font-mono text-text-secondary ml-1 font-normal">[{activeSymbol}]</span>
+              {(() => {
+                const badge = getSymbolBadge(activeSymbol);
+                return (
+                  <span className={`text-[9px] px-1 py-0.2 rounded border font-medium ${badge.color}`}>
+                    {badge.label}
+                  </span>
+                );
+              })()}
             </h3>
             <div className="flex items-center gap-1 mt-0.5">
               <span className="text-[10px] text-trade-ai font-mono font-medium">
@@ -647,120 +525,28 @@ export const AICopilotCard: React.FC = () => {
             <span>{isAutoPilotEnabled ? '巡检: 开' : '巡检: 关'}</span>
           </button>
 
-          {/* 全自动操盘托管开关 */}
-          <button
-            type="button"
-            onClick={() => handleToggleAutoTrade(!isAutoTradeEnabled)}
-            className={`flex items-center space-x-1 px-2 py-1 rounded text-[10px] font-mono font-bold transition-all cursor-pointer ${
-              isAutoTradeEnabled
-                ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-sm shadow-amber-500/20'
-                : 'bg-bg-elevated text-text-muted border border-bg-border hover:text-text-secondary'
-            }`}
-            title="开启/关闭 AI 全自动量化操盘：当置信度达标时自动市价开仓并自适应调节杠杆"
-          >
-            <Bot className={`w-3 h-3 ${isAutoTradeEnabled ? 'text-amber-300 animate-pulse' : 'text-text-muted'}`} />
-            <span>{isAutoTradeEnabled ? '🤖 自动操盘: 开' : '🤖 自动操盘: 关'}</span>
-          </button>
-
-          {/* 托管参数配置按钮 */}
-          <button
-            type="button"
-            onClick={() => setIsAutoTradeConfigOpen(!isAutoTradeConfigOpen)}
-            className={`p-1 rounded border transition-colors cursor-pointer ${
-              isAutoTradeConfigOpen ? 'bg-trade-ai/20 text-trade-ai border-trade-ai/40' : 'text-text-muted hover:text-text-primary hover:bg-bg-elevated border-transparent hover:border-bg-border'
-            }`}
-            title="配置自动开仓置信度门槛与杠杆调节策略"
-          >
-            <Sliders className="w-3.5 h-3.5" />
-          </button>
-
           <button
             onClick={handleTriggerAnalysis}
             disabled={isAiAnalyzing}
-            className="flex items-center space-x-1 px-2.5 py-1 rounded text-xs font-medium bg-bg-elevated hover:bg-bg-border text-text-secondary hover:text-text-primary border border-bg-border transition-colors disabled:opacity-50 cursor-pointer"
-            title="重新分析当前盘面并按规则自动执行"
+            className="flex items-center space-x-1 px-2.5 py-1 rounded text-xs font-medium bg-trade-ai/20 hover:bg-trade-ai/30 text-trade-ai border border-trade-ai/40 transition-colors disabled:opacity-50 cursor-pointer shadow-sm"
+            title="实时推理当前标的多周期行情并更新量化策略"
           >
-            <RefreshCw className={`w-3 h-3 ${isAiAnalyzing ? 'animate-spin text-trade-ai' : ''}`} />
+            <RefreshCw className={`w-3 h-3 ${isAiAnalyzing ? 'animate-spin' : ''}`} />
             <span>{isAiAnalyzing ? '推理中...' : '重新研判'}</span>
           </button>
         </div>
       </div>
 
-      {/* 全自动操盘参数配置面板 */}
-      {isAutoTradeConfigOpen && (
-        <div className="p-3 rounded-lg bg-bg-elevated border border-trade-ai/30 space-y-2.5 text-xs animate-in fade-in">
-          <div className="flex items-center justify-between font-bold text-text-primary pb-1.5 border-b border-bg-border">
-            <span className="flex items-center space-x-1.5 text-trade-ai">
-              <Bot className="w-4 h-4" />
-              <span>AI 全自动量化操盘参数配置</span>
-            </span>
-            <button
-              onClick={() => setIsAutoTradeConfigOpen(false)}
-              className="text-text-muted hover:text-text-primary p-0.5 cursor-pointer"
-            >
-              <X className="w-3.5 h-3.5" />
-            </button>
-          </div>
-
-          <div className="grid grid-cols-2 gap-2 text-[11px]">
-            <div>
-              <span className="text-text-muted block mb-1">自动开仓置信度门槛:</span>
-              <div className="flex space-x-1">
-                {[0.65, 0.70, 0.80].map((conf) => (
-                  <button
-                    key={conf}
-                    type="button"
-                    onClick={() => {
-                      setAutoTradeMinConfidence(conf);
-                      localStorage.setItem('okx_dog_auto_trade_min_conf', String(conf));
-                    }}
-                    className={`px-2 py-0.5 rounded font-mono font-bold text-[10px] border transition-colors cursor-pointer ${
-                      autoTradeMinConfidence === conf
-                        ? 'bg-trade-ai text-white border-trade-ai'
-                        : 'bg-bg-primary text-text-muted border-bg-border hover:text-text-primary'
-                    }`}
-                  >
-                    ≥{Math.round(conf * 100)}%
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div>
-              <span className="text-text-muted block mb-1">自适应调节杠杆:</span>
-              <button
-                type="button"
-                onClick={() => setIsAutoLeverageEnabled(!isAutoLeverageEnabled)}
-                className={`px-2 py-0.5 rounded font-bold text-[10px] border transition-colors cursor-pointer ${
-                  isAutoLeverageEnabled
-                    ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40'
-                    : 'bg-bg-primary text-text-muted border-bg-border'
-                }`}
-              >
-                {isAutoLeverageEnabled ? '✅ 跟随 AI 建议 (1x~5x)' : '固定当前杠杆'}
-              </button>
-            </div>
-          </div>
-
-          <div className="text-[10px] text-text-muted flex items-center space-x-1 pt-1 border-t border-bg-border/60">
-            <ShieldCheck className="w-3.5 h-3.5 text-trade-up shrink-0" />
-            <span>开仓严格按照 2% 账户风险预算计算，止损自动移动保本 (Breakeven)</span>
-          </div>
-        </div>
-      )}
-
-      {/* 全自动操盘生效提示条 */}
-      {isAutoTradeEnabled && (
-        <div className="px-2.5 py-1.5 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-300 text-[11px] flex items-center justify-between animate-in fade-in">
-          <span className="flex items-center space-x-1.5">
-            <Bot className="w-3.5 h-3.5 text-amber-300 animate-pulse shrink-0" />
-            <span>全自动操盘托管中 (信号置信度 ≥ {Math.round(autoTradeMinConfidence * 100)}% 自动开仓)</span>
-          </span>
-          <span className="font-mono text-[10px] text-amber-400/80">
-            {isAutoLeverageEnabled ? '动态杠杆' : '固定杠杆'} · 2% 风险预算
-          </span>
-        </div>
-      )}
+      {/* 自动操盘守护指引条 */}
+      <div className="px-2.5 py-1.5 rounded-lg bg-bg-elevated border border-bg-border/80 text-[11px] flex items-center justify-between text-text-muted">
+        <span className="flex items-center space-x-1.5">
+          <Bot className="w-3.5 h-3.5 text-trade-ai shrink-0" />
+          <span>7x24h 脱机多标的量化操盘由右侧 AutoPilot 独立守护</span>
+        </span>
+        <span className="text-[10px] text-text-muted font-mono">
+          此处支持主观深度研判与一键采纳
+        </span>
+      </div>
 
 
       {/* 自动触发归因动态横条 */}
@@ -878,7 +664,7 @@ export const AICopilotCard: React.FC = () => {
           >
             <span className="flex items-center space-x-1.5">
               <Zap className="w-3.5 h-3.5" />
-              <span>DeepSeek 深度思维链 (<span className="font-mono">CoT</span>)</span>
+              <span>AI 深度思维链推导 (<span className="font-mono">CoT</span>)</span>
             </span>
             {isThinkingExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
           </button>
@@ -909,7 +695,7 @@ export const AICopilotCard: React.FC = () => {
       {aiAnalysis && (() => {
         const cur = ticker?.last_price || 63550;
         const sl = aiAnalysis.trade_plan?.stop_loss_price || cur * 0.985;
-        const lev = isAutoLeverageEnabled ? Math.min(aiAnalysis.trade_plan?.suggested_leverage || adoptLeverage || 3, riskRules.max_leverage || 5) : Math.min(adoptLeverage || 3, riskRules.max_leverage || 5);
+        const lev = Math.min(aiAnalysis.trade_plan?.suggested_leverage || adoptLeverage || 3, riskRules.max_leverage || 5);
         const sizing = getSmartPositionSize(cur, sl, lev);
         return (
           <div className="flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-bg-elevated/70 border border-bg-border/60 text-[11px]">
@@ -918,7 +704,7 @@ export const AICopilotCard: React.FC = () => {
               <span>智能建仓 ({isLiveMode ? '实盘' : '模拟'} 2% 风险):</span>
             </span>
             <span className="font-mono font-bold text-text-primary">
-              {sizing.coins} BTC
+              {sizing.coins} {getBaseCurrency(activeSymbol)}
               <span className="text-text-muted font-normal ml-1">
                 (~${sizing.notional} USDT | 占用保 ${sizing.requiredMargin} U)
               </span>
@@ -1040,7 +826,7 @@ export const AICopilotCard: React.FC = () => {
 
               <div className="flex justify-between items-center py-1 border-b border-bg-border">
                 <div className="flex items-center space-x-1.5">
-                  <span className="text-text-muted">委托数量 (BTC)</span>
+                  <span className="text-text-muted">委托数量 ({getBaseCurrency(activeSymbol)})</span>
                   <button
                     type="button"
                     onClick={() => {

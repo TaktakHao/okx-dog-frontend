@@ -2,8 +2,8 @@
  * @file TradingChart.tsx
  * @description OKX-Dog 极客专业 K 线交易图表组件
  * 基于 TradingView lightweight-charts 引擎构建
- * 支持多周期切换、蜡烛图主图 + 成交量副图 + EMA 20/50/200 均线组
- * 动态叠加持仓均价线、止盈止损线、AI 支撑/阻力价格线与自适应缩放
+ * 支持多周期切换、蜡烛图主图 + 多副图指标 (成交量 / RSI / MACD) + EMA 20/50/200 均线组
+ * 动态叠加持仓均价线、止盈止损线、AI 支撑/阻力价格线与 AI 决策信号图表打点 (Markers)
  */
 
 import React, { useEffect, useRef, useState, useCallback } from 'react';
@@ -19,13 +19,14 @@ import {
   HistogramData,
   LineData,
   LineStyle,
+  SeriesMarker,
 } from 'lightweight-charts';
 import { 
   Maximize2, 
   Eye, 
   EyeOff, 
   RefreshCw, 
-  Layers 
+  Layers
 } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
 import { marketApi } from '../services/api';
@@ -41,19 +42,30 @@ interface OHLCVState {
   changePct: number;
 }
 
+type SubIndicatorType = 'VOL' | 'RSI' | 'MACD';
+
 export const TradingChart: React.FC = () => {
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const candleSeriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null);
+  
+  // 副图指标系列
   const volumeSeriesRef = useRef<ISeriesApi<'Histogram'> | null>(null);
+  const rsiSeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
+  const macdDifSeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
+  const macdDeaSeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
+  const macdHistSeriesRef = useRef<ISeriesApi<'Histogram'> | null>(null);
+
+  // EMA 均线系列
   const ema20SeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
   const ema50SeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
   const ema200SeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
 
-  // 辅助价格线引用数组（用于动态清理与更新）
+  // 辅助价格线引用数组
   const priceLinesRef = useRef<IPriceLine[]>([]);
+  const rsiPriceLinesRef = useRef<IPriceLine[]>([]);
   const lastCandleRef = useRef<CandlestickData | null>(null);
-
+  const currentCandlesRef = useRef<CandlestickData[]>([]);
 
   const {
     activeSymbol,
@@ -67,7 +79,10 @@ export const TradingChart: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [showEma, setShowEma] = useState(true);
   const [showOverlays, setShowOverlays] = useState(true);
+  const [subIndicator, setSubIndicator] = useState<SubIndicatorType>('VOL');
   const [currentOhlc, setCurrentOhlc] = useState<OHLCVState | null>(null);
+  const [currentRsiVal, setCurrentRsiVal] = useState<number | null>(null);
+  const [currentMacdVal, setCurrentMacdVal] = useState<{ dif: number; dea: number; hist: number } | null>(null);
 
   const supportedTimeframes: { label: string; value: TimeFrame }[] = [
     { label: '15m', value: '15m' },
@@ -84,7 +99,6 @@ export const TradingChart: React.FC = () => {
     const k = 2 / (period + 1);
     const emaArray: LineData[] = [];
 
-    // 计算初始 SMA
     let sum = 0;
     for (let i = 0; i < period; i++) {
       sum += data[i].close;
@@ -99,6 +113,97 @@ export const TradingChart: React.FC = () => {
     }
 
     return emaArray;
+  };
+
+  /**
+   * RSI (14) 指标计算算法
+   */
+  const calculateRSI = (data: CandlestickData[], period: number = 14): LineData[] => {
+    if (data.length <= period) return [];
+    const rsiArray: LineData[] = [];
+    let gains = 0;
+    let losses = 0;
+
+    for (let i = 1; i <= period; i++) {
+      const diff = data[i].close - data[i - 1].close;
+      if (diff >= 0) gains += diff;
+      else losses -= diff;
+    }
+
+    let avgGain = gains / period;
+    let avgLoss = losses / period;
+    let rs = avgLoss === 0 ? 100 : avgGain / avgLoss;
+    let rsi = 100 - 100 / (1 + rs);
+    rsiArray.push({ time: data[period].time, value: Number(rsi.toFixed(2)) });
+
+    for (let i = period + 1; i < data.length; i++) {
+      const diff = data[i].close - data[i - 1].close;
+      const gain = diff >= 0 ? diff : 0;
+      const loss = diff < 0 ? -diff : 0;
+
+      avgGain = (avgGain * (period - 1) + gain) / period;
+      avgLoss = (avgLoss * (period - 1) + loss) / period;
+
+      rs = avgLoss === 0 ? 100 : avgGain / avgLoss;
+      rsi = 100 - 100 / (1 + rs);
+      rsiArray.push({ time: data[i].time, value: Number(rsi.toFixed(2)) });
+    }
+
+    return rsiArray;
+  };
+
+  /**
+   * MACD (12, 26, 9) 指标计算算法
+   */
+  const calculateMACD = (data: CandlestickData[], fast = 12, slow = 26, signal = 9) => {
+    if (data.length < slow + signal) return { dif: [], dea: [], hist: [] };
+    const emaFast = calculateEMA(data, fast);
+    const emaSlow = calculateEMA(data, slow);
+
+    const difMap = new Map<number, number>();
+    const fastMap = new Map<number, number>(emaFast.map((item) => [Number(item.time), item.value]));
+
+    emaSlow.forEach((slowItem) => {
+      const t = Number(slowItem.time);
+      const fastVal = fastMap.get(t);
+      if (fastVal !== undefined) {
+        difMap.set(t, fastVal - slowItem.value);
+      }
+    });
+
+    const difArray: LineData[] = Array.from(difMap.entries())
+      .sort((a, b) => a[0] - b[0])
+      .map(([time, value]) => ({ time: time as UTCTimestamp, value: Number(value.toFixed(2)) }));
+
+    if (difArray.length < signal) return { dif: difArray, dea: [], hist: [] };
+    const k = 2 / (signal + 1);
+    let sum = 0;
+    for (let i = 0; i < signal; i++) sum += difArray[i].value;
+    let prevDea = sum / signal;
+    const deaArray: LineData[] = [{ time: difArray[signal - 1].time, value: Number(prevDea.toFixed(2)) }];
+
+    for (let i = signal; i < difArray.length; i++) {
+      prevDea = difArray[i].value * k + prevDea * (1 - k);
+      deaArray.push({ time: difArray[i].time, value: Number(prevDea.toFixed(2)) });
+    }
+
+    const deaMap = new Map<number, number>(deaArray.map((item) => [Number(item.time), item.value]));
+    const histArray: HistogramData[] = [];
+
+    difArray.forEach((difItem) => {
+      const t = Number(difItem.time);
+      const deaVal = deaMap.get(t);
+      if (deaVal !== undefined) {
+        const histVal = (difItem.value - deaVal) * 2;
+        histArray.push({
+          time: difItem.time,
+          value: Number(histVal.toFixed(2)),
+          color: histVal >= 0 ? 'rgba(0, 192, 135, 0.7)' : 'rgba(246, 70, 93, 0.7)',
+        });
+      }
+    });
+
+    return { dif: difArray, dea: deaArray, hist: histArray };
   };
 
   /**
@@ -164,7 +269,6 @@ export const TradingChart: React.FC = () => {
     (Array.isArray(positions) ? positions : [])
       .filter((pos) => pos && pos.symbol === activeSymbol && (pos.pos_size ?? 0) > 0)
       .forEach((pos) => {
-        // 持仓均价线 (亮黄色)
         const isLong = pos.pos_side === 'long';
         const uplVal = pos.upl ?? 0;
         const uplText = uplVal >= 0 ? `+${uplVal.toFixed(2)}` : uplVal.toFixed(2);
@@ -178,7 +282,6 @@ export const TradingChart: React.FC = () => {
         });
         priceLinesRef.current.push(posLine);
 
-        // 强平预警参考线 (粉紫色)
         if (pos.liquidation_price && pos.liquidation_price > 0) {
           const liqLine = series.createPriceLine({
             price: pos.liquidation_price,
@@ -191,7 +294,6 @@ export const TradingChart: React.FC = () => {
           priceLinesRef.current.push(liqLine);
         }
 
-        // 关联止盈线 (亮绿色虚线)
         if (pos.tp_trigger_price && pos.tp_trigger_price > 0) {
           const tpLine = series.createPriceLine({
             price: pos.tp_trigger_price,
@@ -204,7 +306,6 @@ export const TradingChart: React.FC = () => {
           priceLinesRef.current.push(tpLine);
         }
 
-        // 关联止损线 (霓虹红虚线)
         if (pos.sl_trigger_price && pos.sl_trigger_price > 0) {
           const slLine = series.createPriceLine({
             price: pos.sl_trigger_price,
@@ -230,7 +331,6 @@ export const TradingChart: React.FC = () => {
           ? aiAnalysis.timeframe_analysis?.tf_1d
           : aiAnalysis.timeframe_analysis?.tf_1h;
 
-      // AI 关键支撑位 (绿色点线)
       if (tfDetail?.support_level) {
         const supportLine = series.createPriceLine({
           price: tfDetail.support_level,
@@ -243,7 +343,6 @@ export const TradingChart: React.FC = () => {
         priceLinesRef.current.push(supportLine);
       }
 
-      // AI 关键阻力位 (红色点线)
       if (tfDetail?.resistance_level) {
         const resLine = series.createPriceLine({
           price: tfDetail.resistance_level,
@@ -256,7 +355,6 @@ export const TradingChart: React.FC = () => {
         priceLinesRef.current.push(resLine);
       }
 
-      // AI 计划建议止损点
       if (plan?.stop_loss_price && (!positions.length || !positions[0]?.sl_trigger_price)) {
         const planSlLine = series.createPriceLine({
           price: plan.stop_loss_price,
@@ -272,12 +370,60 @@ export const TradingChart: React.FC = () => {
   }, [activeSymbol, activeTimeframe, positions, aiAnalysis, showOverlays]);
 
   /**
+   * 动态打点 AI 交易研判信号 (Trade Signal Markers)
+   */
+  const updateAIMarkers = useCallback(() => {
+    if (!candleSeriesRef.current) return;
+    if (!aiAnalysis || aiAnalysis.symbol !== activeSymbol) {
+      candleSeriesRef.current.setMarkers([]);
+      return;
+    }
+
+    const signal = aiAnalysis.signal;
+    const action = signal?.action;
+    const confidence = signal?.confidence ? Math.round(signal.confidence * 100) : 0;
+    const plan = aiAnalysis.trade_plan;
+
+    if (!action || !lastCandleRef.current) return;
+
+    const latestTime = Number(lastCandleRef.current.time) as UTCTimestamp;
+    const markers: SeriesMarker<UTCTimestamp>[] = [];
+
+    if (action === 'BUY_LONG') {
+      markers.push({
+        time: latestTime,
+        position: 'belowBar',
+        color: '#00C087',
+        shape: 'arrowUp',
+        text: `AI 看多 (${confidence}%) 杠杆:${plan?.suggested_leverage || 3}x`,
+      });
+    } else if (action === 'SELL_SHORT') {
+      markers.push({
+        time: latestTime,
+        position: 'aboveBar',
+        color: '#F6465D',
+        shape: 'arrowDown',
+        text: `AI 看空 (${confidence}%) 杠杆:${plan?.suggested_leverage || 3}x`,
+      });
+    } else if (action === 'CLOSE_POSITION') {
+      markers.push({
+        time: latestTime,
+        position: 'aboveBar',
+        color: '#F59E0B',
+        shape: 'circle',
+        text: 'AI 建议止盈/平仓',
+      });
+    }
+
+    candleSeriesRef.current.setMarkers(markers);
+  }, [aiAnalysis, activeSymbol]);
+
+  /**
    * 初始化与挂载 lightweight-charts 图表
    */
   useEffect(() => {
     if (!chartContainerRef.current) return;
 
-    // 创建 Chart 实例
     const chart = createChart(chartContainerRef.current, {
       width: chartContainerRef.current.clientWidth,
       height: chartContainerRef.current.clientHeight || 420,
@@ -309,8 +455,8 @@ export const TradingChart: React.FC = () => {
       rightPriceScale: {
         borderColor: '#2A303C',
         scaleMargins: {
-          top: 0.1,
-          bottom: 0.22, // 预留底部给成交量
+          top: 0.08,
+          bottom: 0.25, // 预留底部 25% 空间给副图指标
         },
       },
       timeScale: {
@@ -332,20 +478,75 @@ export const TradingChart: React.FC = () => {
     });
     candleSeriesRef.current = candleSeries;
 
-    // 2. 成交量副图系列
+    // 2. 副图：成交量系列
     const volumeSeries = chart.addHistogramSeries({
       priceFormat: { type: 'volume' },
-      priceScaleId: '', // 独立副图比例尺
+      priceScaleId: 'volume_scale',
     });
     volumeSeries.priceScale().applyOptions({
-      scaleMargins: {
-        top: 0.82, // 位于图表底部 18% 高度
-        bottom: 0,
-      },
+      scaleMargins: { top: 0.80, bottom: 0 },
     });
     volumeSeriesRef.current = volumeSeries;
 
-    // 3. EMA 均线系列 (EMA 20 琥珀黄, EMA 50 天蓝, EMA 200 紫色)
+    // 3. 副图：RSI(14) 系列
+    const rsiSeries = chart.addLineSeries({
+      color: '#A855F7',
+      lineWidth: 2,
+      priceScaleId: 'rsi_scale',
+      crosshairMarkerVisible: true,
+      lastValueVisible: true,
+      priceLineVisible: false,
+    });
+    rsiSeries.priceScale().applyOptions({
+      scaleMargins: { top: 0.80, bottom: 0 },
+    });
+    // RSI 70/30 超买超卖基准线
+    const rsi70 = rsiSeries.createPriceLine({
+      price: 70,
+      color: 'rgba(239, 68, 68, 0.6)',
+      lineWidth: 1,
+      lineStyle: LineStyle.Dashed,
+      axisLabelVisible: true,
+      title: '70 超买',
+    });
+    const rsi30 = rsiSeries.createPriceLine({
+      price: 30,
+      color: 'rgba(16, 185, 129, 0.6)',
+      lineWidth: 1,
+      lineStyle: LineStyle.Dashed,
+      axisLabelVisible: true,
+      title: '30 超卖',
+    });
+    rsiPriceLinesRef.current = [rsi70, rsi30];
+    rsiSeriesRef.current = rsiSeries;
+
+    // 4. 副图：MACD 系列 (DIF/DEA/HIST)
+    const macdDifSeries = chart.addLineSeries({
+      color: '#38BDF8',
+      lineWidth: 1,
+      priceScaleId: 'macd_scale',
+      crosshairMarkerVisible: false,
+      lastValueVisible: true,
+      priceLineVisible: false,
+    });
+    const macdDeaSeries = chart.addLineSeries({
+      color: '#F59E0B',
+      lineWidth: 1,
+      priceScaleId: 'macd_scale',
+      crosshairMarkerVisible: false,
+      lastValueVisible: true,
+      priceLineVisible: false,
+    });
+    const macdHistSeries = chart.addHistogramSeries({
+      priceScaleId: 'macd_scale',
+      priceFormat: { type: 'price', precision: 2, minMove: 0.01 },
+    });
+    macdDifSeries.priceScale().applyOptions({ scaleMargins: { top: 0.80, bottom: 0 } });
+    macdDifSeriesRef.current = macdDifSeries;
+    macdDeaSeriesRef.current = macdDeaSeries;
+    macdHistSeriesRef.current = macdHistSeries;
+
+    // 5. EMA 均线系列
     const ema20Series = chart.addLineSeries({
       color: '#F59E0B',
       lineWidth: 1,
@@ -365,7 +566,7 @@ export const TradingChart: React.FC = () => {
     ema50SeriesRef.current = ema50Series;
 
     const ema200Series = chart.addLineSeries({
-      color: '#A855F7',
+      color: '#EC4899',
       lineWidth: 2,
       crosshairMarkerVisible: false,
       lastValueVisible: false,
@@ -373,17 +574,17 @@ export const TradingChart: React.FC = () => {
     });
     ema200SeriesRef.current = ema200Series;
 
-    // 4. 十字光标悬浮监听与数据头部更新
+    // 6. 十字光标悬浮监听
     chart.subscribeCrosshairMove((param) => {
-      if (
-        !param.time ||
-        !param.seriesData ||
-        !param.seriesData.get(candleSeries)
-      ) {
+      if (!param.time || !param.seriesData || !param.seriesData.get(candleSeries)) {
         return;
       }
       const data = param.seriesData.get(candleSeries) as CandlestickData;
       const volData = param.seriesData.get(volumeSeries) as HistogramData;
+      const rsiData = param.seriesData.get(rsiSeries) as LineData;
+      const difData = param.seriesData.get(macdDifSeries) as LineData;
+      const deaData = param.seriesData.get(macdDeaSeries) as LineData;
+      const histData = param.seriesData.get(macdHistSeries) as HistogramData;
 
       const changePct = ((data.close - data.open) / data.open) * 100;
       const dateStr = new Date(Number(data.time) * 1000).toLocaleString('zh-CN', {
@@ -402,9 +603,20 @@ export const TradingChart: React.FC = () => {
         volume: volData?.value || 0,
         changePct,
       });
+
+      if (rsiData?.value !== undefined) {
+        setCurrentRsiVal(rsiData.value);
+      }
+      if (difData?.value !== undefined && deaData?.value !== undefined) {
+        setCurrentMacdVal({
+          dif: difData.value,
+          dea: deaData.value,
+          hist: histData?.value || 0,
+        });
+      }
     });
 
-    // 5. 监听窗口自适应尺寸
+    // 7. 自适应监听
     const resizeObserver = new ResizeObserver((entries) => {
       if (!entries || entries.length === 0 || !chartRef.current) return;
       const { width, height } = entries[0].contentRect;
@@ -413,7 +625,6 @@ export const TradingChart: React.FC = () => {
 
     resizeObserver.observe(chartContainerRef.current);
 
-    // 6. 组件卸载时释放内存
     return () => {
       resizeObserver.disconnect();
       if (chartRef.current) {
@@ -422,6 +633,48 @@ export const TradingChart: React.FC = () => {
       }
     };
   }, []);
+
+  /**
+   * 刷新与应用副图指标显示
+   */
+  const applySubIndicatorData = useCallback(
+    (candles: CandlestickData[], volumes: HistogramData[]) => {
+      if (!chartRef.current) return;
+
+      if (subIndicator === 'VOL') {
+        volumeSeriesRef.current?.setData(volumes);
+        rsiSeriesRef.current?.setData([]);
+        macdDifSeriesRef.current?.setData([]);
+        macdDeaSeriesRef.current?.setData([]);
+        macdHistSeriesRef.current?.setData([]);
+      } else if (subIndicator === 'RSI') {
+        volumeSeriesRef.current?.setData([]);
+        const rsiData = calculateRSI(candles, 14);
+        rsiSeriesRef.current?.setData(rsiData);
+        if (rsiData.length > 0) {
+          setCurrentRsiVal(rsiData[rsiData.length - 1].value);
+        }
+        macdDifSeriesRef.current?.setData([]);
+        macdDeaSeriesRef.current?.setData([]);
+        macdHistSeriesRef.current?.setData([]);
+      } else if (subIndicator === 'MACD') {
+        volumeSeriesRef.current?.setData([]);
+        rsiSeriesRef.current?.setData([]);
+        const { dif, dea, hist } = calculateMACD(candles, 12, 26, 9);
+        macdDifSeriesRef.current?.setData(dif);
+        macdDeaSeriesRef.current?.setData(dea);
+        macdHistSeriesRef.current?.setData(hist);
+        if (dif.length > 0 && dea.length > 0) {
+          setCurrentMacdVal({
+            dif: dif[dif.length - 1].value,
+            dea: dea[dea.length - 1].value,
+            hist: hist[hist.length - 1]?.value || 0,
+          });
+        }
+      }
+    },
+    [subIndicator]
+  );
 
   /**
    * 加载历史 K 线与刷新数据
@@ -435,7 +688,6 @@ export const TradingChart: React.FC = () => {
       try {
         klines = await marketApi.getKline(activeSymbol, activeTimeframe, 150);
       } catch {
-        // 当后端未完全就绪时，降级使用保真行情数据
         klines = generateFallbackKlines(activeTimeframe, 150);
       }
 
@@ -443,7 +695,6 @@ export const TradingChart: React.FC = () => {
         klines = generateFallbackKlines(activeTimeframe, 150);
       }
 
-      // 格式化为 Lightweight Charts 格式，确保时间戳提取正确并严格单调递增
       const rawCandles: {
         time: UTCTimestamp;
         open: number;
@@ -470,10 +721,8 @@ export const TradingChart: React.FC = () => {
         }
       });
 
-      // 严格按时间升序排序
       rawCandles.sort((a, b) => Number(a.time) - Number(b.time));
 
-      // 去重 (lightweight-charts 禁止重复时间戳)
       const formattedCandles: CandlestickData[] = [];
       const formattedVolumes: HistogramData[] = [];
       const seenTime = new Set<number>();
@@ -498,11 +747,11 @@ export const TradingChart: React.FC = () => {
       });
 
       if (formattedCandles.length > 0) {
+        currentCandlesRef.current = formattedCandles;
         candleSeriesRef.current.setData(formattedCandles);
-        volumeSeriesRef.current.setData(formattedVolumes);
         lastCandleRef.current = { ...formattedCandles[formattedCandles.length - 1] };
 
-        // 计算并绑定 EMA
+        // 渲染 EMA
         if (showEma) {
           const ema20 = calculateEMA(formattedCandles, 20);
           const ema50 = calculateEMA(formattedCandles, 50);
@@ -517,7 +766,10 @@ export const TradingChart: React.FC = () => {
           ema200SeriesRef.current?.setData([]);
         }
 
-        // 更新当前头部看板 OHLC
+        // 渲染当前副图指标
+        applySubIndicatorData(formattedCandles, formattedVolumes);
+
+        // 更新头部看板
         const last = formattedCandles[formattedCandles.length - 1];
         const lastVol = formattedVolumes[formattedVolumes.length - 1]?.value || 0;
         setCurrentOhlc({
@@ -537,25 +789,37 @@ export const TradingChart: React.FC = () => {
 
         chartRef.current?.timeScale().fitContent();
         updatePriceOverlays();
+        updateAIMarkers();
       }
     } catch (err) {
       console.error('[Chart] 加载 K 线失败:', err);
     } finally {
       setLoading(false);
     }
-  }, [activeSymbol, activeTimeframe, showEma, updatePriceOverlays]);
+  }, [activeSymbol, activeTimeframe, showEma, applySubIndicatorData, updatePriceOverlays, updateAIMarkers]);
 
-  // 当标的、周期切换时重新拉取数据
   useEffect(() => {
     loadKlines();
   }, [loadKlines]);
 
-  // 当持仓或 AI 研判变化时更新叠加辅助线
   useEffect(() => {
     updatePriceOverlays();
-  }, [updatePriceOverlays]);
+    updateAIMarkers();
+  }, [updatePriceOverlays, updateAIMarkers]);
 
-  // 实时 Ticker 更新最新 Candle (周期对齐与动态真实 High/Low 维护)
+  // 当副图指标切换时，重新渲染副图数据
+  useEffect(() => {
+    if (currentCandlesRef.current.length > 0) {
+      const volumes: HistogramData[] = currentCandlesRef.current.map((c) => ({
+        time: c.time,
+        value: 0,
+        color: c.close >= c.open ? 'rgba(0, 192, 135, 0.4)' : 'rgba(246, 70, 93, 0.4)',
+      }));
+      applySubIndicatorData(currentCandlesRef.current, volumes);
+    }
+  }, [subIndicator, applySubIndicatorData]);
+
+  // 实时 Ticker 更新
   useEffect(() => {
     if (!ticker || !ticker.last_price || !candleSeriesRef.current) return;
     const p = ticker.last_price;
@@ -595,16 +859,15 @@ export const TradingChart: React.FC = () => {
         candleSeriesRef.current.update(newBar);
       }
     } catch {
-      // 忽略实时微弱更新异常
+      // 忽略实时更新异常
     }
   }, [ticker, activeTimeframe]);
-
 
   return (
     <div className="flex flex-col h-full w-full rounded-lg border border-bg-border bg-bg-secondary overflow-hidden shadow-lg">
       {/* 1. 图表顶部控制栏 */}
       <div className="flex items-center justify-between px-3 py-2 border-b border-bg-border bg-bg-secondary">
-        {/* 左侧：周期切换与指标开关 */}
+        {/* 左侧：周期切换与主图指标 */}
         <div className="flex items-center space-x-1.5">
           {supportedTimeframes.map((tf) => (
             <button
@@ -649,6 +912,25 @@ export const TradingChart: React.FC = () => {
             {showOverlays ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
             <span>Overlay</span>
           </button>
+
+          <div className="h-4 w-px bg-bg-border mx-1" />
+
+          {/* 副图指标切换按钮组 */}
+          <div className="flex items-center bg-bg-elevated rounded p-0.5 space-x-0.5 border border-bg-border/60">
+            {(['VOL', 'RSI', 'MACD'] as SubIndicatorType[]).map((sub) => (
+              <button
+                key={sub}
+                onClick={() => setSubIndicator(sub)}
+                className={`px-2 py-0.5 rounded text-[10px] font-mono transition-all ${
+                  subIndicator === sub
+                    ? 'bg-blue-600/30 text-blue-400 font-bold border border-blue-500/40 shadow-sm'
+                    : 'text-text-muted hover:text-text-secondary'
+                }`}
+              >
+                {sub}
+              </button>
+            ))}
+          </div>
         </div>
 
         {/* 右侧：刷新与全屏工具 */}
@@ -678,41 +960,60 @@ export const TradingChart: React.FC = () => {
         </div>
       </div>
 
-      {/* 2. OHLCV 实时数据悬浮条 */}
+      {/* 2. OHLCV 与副图指标实时数据悬浮条 */}
       {currentOhlc && (
-        <div className="flex flex-wrap items-center gap-x-3 px-3 py-1 bg-bg-primary/50 text-[11px] font-mono-num border-b border-bg-border/60">
-          <span className="text-text-muted">{currentOhlc.time}</span>
-          <span>
-            <span className="text-text-muted">O: </span>
-            <span className="text-text-primary">{(currentOhlc.open ?? 0).toFixed(1)}</span>
-          </span>
-          <span>
-            <span className="text-text-muted">H: </span>
-            <span className="text-text-primary">{(currentOhlc.high ?? 0).toFixed(1)}</span>
-          </span>
-          <span>
-            <span className="text-text-muted">L: </span>
-            <span className="text-text-primary">{(currentOhlc.low ?? 0).toFixed(1)}</span>
-          </span>
-          <span>
-            <span className="text-text-muted">C: </span>
-            <span
-              className={`font-semibold ${
-                (currentOhlc.close ?? 0) >= (currentOhlc.open ?? 0) ? 'text-trade-up' : 'text-trade-down'
-              }`}
-            >
-              {(currentOhlc.close ?? 0).toFixed(1)} ({(currentOhlc.changePct ?? 0) >= 0 ? '+' : ''}
-              {(currentOhlc.changePct ?? 0).toFixed(2)}%)
+        <div className="flex flex-wrap items-center justify-between px-3 py-1 bg-bg-primary/50 text-[11px] font-mono-num border-b border-bg-border/60">
+          <div className="flex items-center space-x-3">
+            <span className="text-text-muted">{currentOhlc.time}</span>
+            <span>
+              <span className="text-text-muted">O: </span>
+              <span className="text-text-primary">{(currentOhlc.open ?? 0).toFixed(1)}</span>
             </span>
-          </span>
-          <span>
-            <span className="text-text-muted">Vol: </span>
-            <span className="text-text-secondary">{(currentOhlc.volume ?? 0).toLocaleString()}</span>
-          </span>
+            <span>
+              <span className="text-text-muted">H: </span>
+              <span className="text-text-primary">{(currentOhlc.high ?? 0).toFixed(1)}</span>
+            </span>
+            <span>
+              <span className="text-text-muted">L: </span>
+              <span className="text-text-primary">{(currentOhlc.low ?? 0).toFixed(1)}</span>
+            </span>
+            <span>
+              <span className="text-text-muted">C: </span>
+              <span
+                className={`font-semibold ${
+                  (currentOhlc.close ?? 0) >= (currentOhlc.open ?? 0) ? 'text-trade-up' : 'text-trade-down'
+                }`}
+              >
+                {(currentOhlc.close ?? 0).toFixed(1)} ({(currentOhlc.changePct ?? 0) >= 0 ? '+' : ''}
+                {(currentOhlc.changePct ?? 0).toFixed(2)}%)
+              </span>
+            </span>
+            {subIndicator === 'VOL' && (
+              <span>
+                <span className="text-text-muted">Vol: </span>
+                <span className="text-text-secondary">{(currentOhlc.volume ?? 0).toLocaleString()}</span>
+              </span>
+            )}
+            {subIndicator === 'RSI' && currentRsiVal !== null && (
+              <span className="text-purple-400 font-semibold">
+                <span className="text-text-muted">RSI(14): </span>
+                {currentRsiVal.toFixed(1)}
+              </span>
+            )}
+            {subIndicator === 'MACD' && currentMacdVal !== null && (
+              <div className="flex items-center space-x-2">
+                <span className="text-sky-400">DIF: {currentMacdVal.dif.toFixed(2)}</span>
+                <span className="text-amber-400">DEA: {currentMacdVal.dea.toFixed(2)}</span>
+                <span className={currentMacdVal.hist >= 0 ? 'text-emerald-400' : 'text-rose-400'}>
+                  MACD: {currentMacdVal.hist.toFixed(2)}
+                </span>
+              </div>
+            )}
+          </div>
 
           {/* EMA 图例 */}
           {showEma && (
-            <div className="ml-auto hidden md:flex items-center space-x-2 text-[10px]">
+            <div className="hidden md:flex items-center space-x-2 text-[10px]">
               <span className="flex items-center text-amber-400">
                 <span className="w-2 h-0.5 bg-amber-400 mr-1" />
                 EMA(20)
@@ -721,8 +1022,8 @@ export const TradingChart: React.FC = () => {
                 <span className="w-2 h-0.5 bg-sky-400 mr-1" />
                 EMA(50)
               </span>
-              <span className="flex items-center text-purple-400">
-                <span className="w-2 h-0.5 bg-purple-400 mr-1" />
+              <span className="flex items-center text-pink-400">
+                <span className="w-2 h-0.5 bg-pink-400 mr-1" />
                 EMA(200)
               </span>
             </div>
@@ -731,7 +1032,7 @@ export const TradingChart: React.FC = () => {
       )}
 
       {/* 3. 图表核心画布容器 */}
-      <div className="relative flex-1 w-full min-h-[360px] bg-bg-secondary">
+      <div className="relative flex-1 w-full min-h-[380px] bg-bg-secondary">
         <div ref={chartContainerRef} className="absolute inset-0 w-full h-full" />
       </div>
     </div>

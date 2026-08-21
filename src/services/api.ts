@@ -38,6 +38,7 @@ import {
   PanicButtonResponse,
   RiskAuditLogModel,
   PaperAccountInfo,
+  SymbolListResponse,
 } from '../types';
 
 const BASE_URL = '/api/v1';
@@ -204,6 +205,17 @@ export const marketApi = {
     return request<MultiPeriodIndicators>(
       `/market/indicators?symbol=${encodeURIComponent(symbol)}`
     );
+  },
+
+  /**
+   * 获取标的池列表与搜索
+   */
+  getSymbols: (keyword?: string, category?: string): Promise<SymbolListResponse> => {
+    const params = new URLSearchParams();
+    if (keyword) params.append('keyword', keyword);
+    if (category) params.append('category', category);
+    const queryStr = params.toString() ? `?${params.toString()}` : '';
+    return request<SymbolListResponse>(`/market/symbols${queryStr}`);
   },
 };
 
@@ -427,4 +439,254 @@ export const systemApi = {
     });
   },
 };
+
+// =============================================================================
+// 7. 全自动量化操盘与盈利全景追踪服务 (Auto-Pilot API)
+// =============================================================================
+
+export const autoPilotApi = {
+  /**
+   * 开启全自动量化操盘 (锁定当前总权益为基准本金)
+   */
+  start: (data?: import('../types').AutoPilotStartRequest): Promise<import('../types').AutoPilotStatusModel> => {
+    return request<import('../types').AutoPilotStatusModel>('/trade/auto-pilot/start', {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    });
+  },
+
+  /**
+   * 暂停/停止全自动量化操盘
+   */
+  stop: (): Promise<import('../types').AutoPilotStatusModel> => {
+    return request<import('../types').AutoPilotStatusModel>('/trade/auto-pilot/stop', {
+      method: 'POST',
+    });
+  },
+
+  /**
+   * 获取自动操盘实时收益全景与胜率统计
+   */
+  getStatus: (): Promise<import('../types').AutoPilotStatusModel> => {
+    return request<import('../types').AutoPilotStatusModel>('/trade/auto-pilot/status');
+  },
+
+  /**
+   * 获取开启以来的收益曲线时序采样点与自动成交平仓流水
+   */
+  getHistory: (): Promise<import('../types').AutoPilotHistoryResponse> => {
+    return request<import('../types').AutoPilotHistoryResponse>('/trade/auto-pilot/history');
+  },
+
+  /**
+   * 更新自动操盘策略参数
+   */
+  updateConfig: (data: import('../types').AutoPilotConfigUpdateRequest): Promise<import('../types').AutoPilotStatusModel> => {
+    return request<import('../types').AutoPilotStatusModel>('/trade/auto-pilot/config', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  /**
+   * 重置自动操盘收益统计基准
+   */
+  resetStats: (): Promise<import('../types').AutoPilotStatusModel> => {
+    return request<import('../types').AutoPilotStatusModel>('/trade/auto-pilot/reset-stats', {
+      method: 'POST',
+    });
+  },
+};
+
+// =============================================================================
+// 9. 模块 A：数据湖与极速回测 API (Data Lake & Backtest)
+// =============================================================================
+
+export const dataLakeApi = {
+  getStatus: (): Promise<import('../types').DataLakeStatusResponse> => {
+    return request<import('../types').DataLakeStatusResponse>('/datalake/status');
+  },
+  sync: (data: import('../types').DataLakeSyncRequest): Promise<any> => {
+    return request<any>('/datalake/sync', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+};
+
+export const backtestApi = {
+  run: (data: import('../types').BacktestRunRequest): Promise<import('../types').BacktestResultResponse> => {
+    return request<import('../types').BacktestResultResponse>('/backtest/run', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+  gridSearch: (data: import('../types').GridSearchRequest): Promise<import('../types').GridSearchResponse> => {
+    return request<import('../types').GridSearchResponse>('/backtest/grid-search', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+  getExperiments: (limit: number = 20): Promise<any[]> => {
+    return request<any[]>(`/backtest/experiments?limit=${limit}`);
+  },
+};
+
+// =============================================================================
+// 10. 模块 B：全网情报与热点新闻 API (News & Macro)
+// =============================================================================
+
+export const newsApi = {
+  getFeed: (limit: number = 20): Promise<import('../types').NewsFeedResponse> => {
+    return request<import('../types').NewsFeedResponse>(`/news/feed?limit=${limit}`);
+  },
+  getMacroCalendar: (): Promise<import('../types').MacroCalendarResponse> => {
+    return request<import('../types').MacroCalendarResponse>('/news/macro-calendar');
+  },
+};
+
+// =============================================================================
+// 11. 模块 C：每日复盘与避坑规则库 API (Daily Review & Knowledge Base)
+// =============================================================================
+
+export const reviewApi = {
+  getDailyReviews: (limit: number = 10): Promise<import('../types').DailyReviewListResponse> => {
+    return request<import('../types').DailyReviewListResponse>(`/reviews/daily?limit=${limit}`);
+  },
+  generateReview: (date?: string): Promise<import('../types').DailyReviewDetail> => {
+    const query = date ? `?date=${date}` : '';
+    return request<import('../types').DailyReviewDetail>(`/reviews/generate${query}`, {
+      method: 'POST',
+    });
+  },
+};
+
+export const knowledgeBaseApi = {
+  getRules: (ruleType?: string, isActive: boolean = true): Promise<import('../types').TradingKnowledgeListResponse> => {
+    let query = `?is_active=${isActive}`;
+    if (ruleType) query += `&rule_type=${ruleType}`;
+    return request<import('../types').TradingKnowledgeListResponse>(`/knowledge-base/rules${query}`);
+  },
+  saveRule: (data: import('../types').TradingKnowledgeRule): Promise<{ rule_id: string }> => {
+    return request<{ rule_id: string }>('/knowledge-base/rules', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+};
+
+// =============================================================================
+// 12. 模块 D：多智能体博弈与 Telegram API (Consensus & Telegram)
+// =============================================================================
+
+export const consensusApi = {
+  analyze: (payload: { symbol: string; snapshot?: any }): Promise<import('../types').MultiAgentConsensusResponse> => {
+    return request<import('../types').MultiAgentConsensusResponse>('/consensus/analyze', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+};
+
+export const telegramApi = {
+  getConfig: (): Promise<import('../types').TelegramConfig> => {
+    return request<import('../types').TelegramConfig>('/telegram/config');
+  },
+  saveConfig: (data: import('../types').TelegramConfigSaveRequest): Promise<import('../types').TelegramConfig> => {
+    return request<import('../types').TelegramConfig>('/telegram/config', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+  sendTest: (message?: string): Promise<{ sent: boolean }> => {
+    return request<{ sent: boolean }>('/telegram/test', {
+      method: 'POST',
+      body: JSON.stringify({ message }),
+    });
+  },
+};
+
+// =============================================================================
+// 13. v3.5 模块：AI Quant Studio & Codex Harness API
+// =============================================================================
+
+export interface StrategyTemplateItem {
+  id: string;
+  name: string;
+  description: string;
+  code: string;
+}
+
+export interface BacktestMetrics {
+  total_return_pct: number;
+  annualized_return_pct: number;
+  max_drawdown_pct: number;
+  sharpe_ratio: number;
+  calmar_ratio: number;
+  win_rate_pct: number;
+  profit_factor: number;
+  total_trades: number;
+  total_bars: number;
+}
+
+export interface EquityCurvePoint {
+  timestamp: number;
+  equity: number;
+  price: number;
+}
+
+export interface TradeSignalPoint {
+  timestamp: number;
+  action: 'BUY' | 'SELL' | 'CLOSE';
+  price: number;
+}
+
+export interface StrategyGenerationResult {
+  strategy_id: string;
+  strategy_name: string;
+  prompt: string;
+  code: string;
+  ast_passed: boolean;
+  attempts: number;
+  status: string;
+  metrics: BacktestMetrics | null;
+  equity_curve: EquityCurvePoint[];
+  trade_signals: TradeSignalPoint[];
+  error_message: string | null;
+}
+
+export const studioApi = {
+  getTemplates: (): Promise<StrategyTemplateItem[]> => {
+    return request<StrategyTemplateItem[]>('/studio/templates');
+  },
+  generateStrategy: (payload: {
+    prompt: string;
+    symbol?: string;
+    timeframe?: string;
+    max_retries?: number;
+  }): Promise<StrategyGenerationResult> => {
+    return request<StrategyGenerationResult>('/studio/generate-strategy', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+  backtestCustom: (payload: {
+    code: string;
+    symbol?: string;
+    timeframe?: string;
+  }): Promise<StrategyGenerationResult> => {
+    return request<StrategyGenerationResult>('/studio/backtest-custom', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+  runBenchmark: (): Promise<any> => {
+    return request<any>('/studio/benchmark-eval', {
+      method: 'POST',
+    });
+  },
+};
+
+
+
 

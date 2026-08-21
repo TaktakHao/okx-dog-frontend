@@ -75,11 +75,11 @@ export const SecurityModal: React.FC = () => {
   // =========================================================================
   // 2. 大模型 (LLM) 表单状态
   // =========================================================================
-  const [llmProvider, setLlmProvider] = useState<'deepseek' | 'openai' | 'anthropic' | 'custom'>('deepseek');
-  const [llmBaseUrl, setLlmBaseUrl] = useState('https://api.deepseek.com');
+  const [llmProvider, setLlmProvider] = useState<'antigravity' | 'deepseek' | 'openai' | 'anthropic' | 'custom'>('antigravity');
+  const [llmBaseUrl, setLlmBaseUrl] = useState('http://127.0.0.1:8001');
   const [llmApiKey, setLlmApiKey] = useState('');
+  const [llmModel, setLlmModel] = useState('gemini-3.7-flash');
   const [showLlmApiKey, setShowLlmApiKey] = useState(false);
-  const [llmModel, setLlmModel] = useState('deepseek-reasoner');
   const [llmTemperature, setLlmTemperature] = useState(0.2);
   const [llmMaxTokens, setLlmMaxTokens] = useState(4096);
   const [llmMasterPassword, setLlmMasterPassword] = useState('');
@@ -167,8 +167,16 @@ export const SecurityModal: React.FC = () => {
   // =========================================================================
   // 厂商快捷预设 (LLM Presets)
   // =========================================================================
-  const applyLLMPreset = (preset: 'deepseek' | 'openai' | 'anthropic' | 'qwen' | 'ollama' | 'custom') => {
+  const applyLLMPreset = (preset: 'antigravity' | 'deepseek' | 'openai' | 'anthropic' | 'qwen' | 'ollama' | 'custom') => {
     switch (preset) {
+      case 'antigravity':
+        setLlmProvider('antigravity');
+        setLlmBaseUrl('http://127.0.0.1:8001');
+        setLlmModel('gemini-3.7-flash');
+        setLlmTemperature(0.2);
+        setLlmMaxTokens(4096);
+        setLlmApiKey('');
+        break;
       case 'deepseek':
         setLlmProvider('deepseek');
         setLlmBaseUrl('https://api.deepseek.com');
@@ -784,6 +792,22 @@ export const SecurityModal: React.FC = () => {
                 <div className="grid grid-cols-3 gap-2">
                   <button
                     type="button"
+                    onClick={() => applyLLMPreset('antigravity')}
+                    className={`p-2 rounded-xl text-xs font-medium border text-left transition-all ${
+                      llmProvider === 'antigravity'
+                        ? 'bg-trade-ai/20 border-trade-ai text-trade-ai font-semibold shadow-sm ring-1 ring-trade-ai/50'
+                        : 'bg-bg-primary border-bg-border text-text-secondary hover:text-text-primary'
+                    }`}
+                  >
+                    <div className="font-bold flex items-center justify-between">
+                      <span>Antigravity CLI</span>
+                      <span className="text-[10px] text-trade-ai font-mono px-1 py-0.2 rounded bg-trade-ai/20">首选免Key</span>
+                    </div>
+                    <div className="text-[10px] text-text-muted truncate mt-0.5">gemini-3.7-flash (本地)</div>
+                  </button>
+
+                  <button
+                    type="button"
                     onClick={() => applyLLMPreset('deepseek')}
                     className={`p-2 rounded-xl text-xs font-medium border text-left transition-all ${
                       llmProvider === 'deepseek' && llmBaseUrl.includes('deepseek')
@@ -793,7 +817,7 @@ export const SecurityModal: React.FC = () => {
                   >
                     <div className="font-bold flex items-center justify-between">
                       <span>DeepSeek</span>
-                      <span className="text-[10px] text-trade-up font-mono">推荐</span>
+                      <span className="text-[10px] text-trade-up font-mono">备选</span>
                     </div>
                     <div className="text-[10px] text-text-muted truncate mt-0.5">deepseek-reasoner</div>
                   </button>
@@ -890,29 +914,40 @@ export const SecurityModal: React.FC = () => {
                     <label className="text-xs font-medium text-text-secondary">
                       大模型 API Key
                       <span className="text-[11px] text-text-muted ml-2">
-                        {llmConfig?.llm_api_key_masked ? `(已加密脱敏: ${llmConfig.llm_api_key_masked})` : '(未配置)'}
+                        {llmProvider === 'antigravity'
+                          ? '(本地 CLI 免 Key 驱动模式)'
+                          : llmConfig?.llm_api_key_masked ? `(已加密脱敏: ${llmConfig.llm_api_key_masked})` : '(未配置)'}
                       </span>
                     </label>
-                    <button
-                      type="button"
-                      onClick={() => setShowLlmApiKey(!showLlmApiKey)}
-                      className="text-text-muted hover:text-text-secondary text-[11px] flex items-center gap-1"
-                    >
-                      {showLlmApiKey ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
-                      <span>{showLlmApiKey ? '隐藏' : '显示'}</span>
-                    </button>
+                    {llmProvider !== 'antigravity' && (
+                      <button
+                        type="button"
+                        onClick={() => setShowLlmApiKey(!showLlmApiKey)}
+                        className="text-text-muted hover:text-text-secondary text-[11px] flex items-center gap-1"
+                      >
+                        {showLlmApiKey ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                        <span>{showLlmApiKey ? '隐藏' : '显示'}</span>
+                      </button>
+                    )}
                   </div>
-                  <input
-                    type={showLlmApiKey ? 'text' : 'password'}
-                    value={llmApiKey}
-                    onChange={(e) => setLlmApiKey(e.target.value)}
-                    placeholder={
-                      llmConfig?.llm_api_key_masked
-                        ? `保持现有加密 Key (${llmConfig.llm_api_key_masked})，输入新 Key 则更新`
-                        : '请输入大模型 API Key (sk-...)'
-                    }
-                    className="w-full px-3 py-2 rounded-xl bg-bg-primary border border-bg-border text-xs text-text-primary placeholder:text-text-muted focus:outline-none focus:border-trade-ai font-mono"
-                  />
+                  {llmProvider === 'antigravity' ? (
+                    <div className="p-2.5 rounded-xl bg-trade-ai/10 border border-trade-ai/30 text-xs text-trade-ai flex items-center gap-2">
+                      <ShieldCheck className="w-4 h-4 shrink-0 text-trade-ai" />
+                      <span>已启用本地 Antigravity CLI 驱动引擎，直接调度本机授权的高性能模型，无需提供外部 Key。</span>
+                    </div>
+                  ) : (
+                    <input
+                      type={showLlmApiKey ? 'text' : 'password'}
+                      value={llmApiKey}
+                      onChange={(e) => setLlmApiKey(e.target.value)}
+                      placeholder={
+                        llmConfig?.llm_api_key_masked
+                          ? `保持现有加密 Key (${llmConfig.llm_api_key_masked})，输入新 Key 则更新`
+                          : '请输入大模型 API Key (sk-...)'
+                      }
+                      className="w-full px-3 py-2 rounded-xl bg-bg-primary border border-bg-border text-xs text-text-primary placeholder:text-text-muted focus:outline-none focus:border-trade-ai font-mono"
+                    />
+                  )}
                 </div>
 
                 {/* Model Name */}

@@ -18,6 +18,8 @@ import {
   AIAdoptPayload,
   TimeFrame,
   LLMConfig,
+  AutoPilotStatusModel,
+  AutoPilotHistoryResponse,
 } from '../types';
 
 export interface AppState {
@@ -33,6 +35,9 @@ export interface AppState {
   // 1.05 模拟操盘沙盒状态
   isPaperModalOpen: boolean;
   paperInitialCapital: number;
+
+  // 1.06 v3.5 AI Quant Studio 策略实验室
+  isStudioModalOpen: boolean;
 
   // 1.1 大模型配置状态
   llmConfig: LLMConfig | null;
@@ -62,6 +67,10 @@ export interface AppState {
   isAiAnalyzing: boolean;
   aiThinkingStream: string;
 
+  // 8. 自动量化操盘全景盈利与状态
+  autoPilotStatus: AutoPilotStatusModel | null;
+  autoPilotHistory: AutoPilotHistoryResponse | null;
+
   // 7. 交互辅助状态 (盘口点选回填、AI 采纳回填)
   selectedPrice: number | null;
   adoptedOrderParams: AIAdoptPayload | null;
@@ -76,6 +85,9 @@ export interface AppState {
   openPaperModal: () => void;
   closePaperModal: () => void;
   setPaperInitialCapital: (capital: number) => void;
+  openStudioModal: () => void;
+  closeStudioModal: () => void;
+  setStudioModalOpen: (open: boolean) => void;
   setLLMConfig: (config: LLMConfig | null) => void;
   triggerPanicLock: (reason: string) => void;
   resetRiskLock: () => void;
@@ -100,6 +112,9 @@ export interface AppState {
   setIsAiAnalyzing: (isAnalyzing: boolean) => void;
   setAiThinkingStream: (stream: string) => void;
   appendAiThinkingStream: (chunk: string) => void;
+
+  setAutoPilotStatus: (status: AutoPilotStatusModel | null) => void;
+  setAutoPilotHistory: (history: AutoPilotHistoryResponse | null) => void;
 }
 
 // 初始默认风控规则
@@ -140,13 +155,15 @@ export const useAppStore = create<AppState>((set) => ({
   isPaperModalOpen: false,
   paperInitialCapital: 10000.0,
 
+  isStudioModalOpen: false,
+
   llmConfig: {
-    llm_provider: 'deepseek',
-    llm_base_url: 'https://api.deepseek.com',
-    llm_model: 'deepseek-reasoner',
+    llm_provider: 'antigravity',
+    llm_base_url: 'http://127.0.0.1:8001',
+    llm_model: 'gemini-3.7-flash',
     llm_temperature: 0.2,
     llm_max_tokens: 4096,
-    llm_api_key_masked: 'sk-****8e91',
+    llm_api_key_masked: '免Key本地驱动',
   },
 
   riskStatus: 'NORMAL',
@@ -169,6 +186,9 @@ export const useAppStore = create<AppState>((set) => ({
   isAiAnalyzing: false,
   aiThinkingStream: '',
 
+  autoPilotStatus: null,
+  autoPilotHistory: null,
+
   selectedPrice: null,
   adoptedOrderParams: null,
 
@@ -185,6 +205,7 @@ export const useAppStore = create<AppState>((set) => ({
       hasConfiguredOkx: false,
       apiKeyMasked: null,
       permissions: [],
+      hasWithdrawPermission: false,
     }),
   openSecurityModal: (tab = 'okx') =>
     set({
@@ -196,6 +217,9 @@ export const useAppStore = create<AppState>((set) => ({
   openPaperModal: () => set({ isPaperModalOpen: true }),
   closePaperModal: () => set({ isPaperModalOpen: false }),
   setPaperInitialCapital: (capital) => set({ paperInitialCapital: capital }),
+  openStudioModal: () => set({ isStudioModalOpen: true }),
+  closeStudioModal: () => set({ isStudioModalOpen: false }),
+  setStudioModalOpen: (open) => set({ isStudioModalOpen: open }),
   setLLMConfig: (config) => set({ llmConfig: config }),
 
   triggerPanicLock: (reason) =>
@@ -261,5 +285,7 @@ export const useAppStore = create<AppState>((set) => ({
     set((state) => ({
       aiThinkingStream: state.aiThinkingStream + chunk,
     })),
-}));
 
+  setAutoPilotStatus: (status) => set({ autoPilotStatus: status }),
+  setAutoPilotHistory: (history) => set({ autoPilotHistory: history }),
+}));

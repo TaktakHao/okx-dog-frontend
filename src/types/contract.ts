@@ -283,11 +283,11 @@ export type TestConnectionResponse = ConnectivityTestResult; // 别名兼容
  * LLM 大模型配置模型
  */
 export interface LLMConfig {
-  /** 模型供应商标识 (deepseek / openai / anthropic / custom) */
-  llm_provider: 'deepseek' | 'openai' | 'anthropic' | 'custom';
-  /** OpenAI 标准兼容接口 Base URL */
+  /** 模型供应商标识 (antigravity / deepseek / openai / anthropic / custom) */
+  llm_provider: 'antigravity' | 'deepseek' | 'openai' | 'anthropic' | 'custom';
+  /** OpenAI 标准兼容接口 Base URL 或本地服务地址 */
   llm_base_url: string;
-  /** 使用的模型名称 (如 "deepseek-reasoner", "deepseek-chat", "gpt-4o") */
+  /** 使用的模型名称 (如 "gemini-3.7-flash", "deepseek-reasoner", "gpt-4o") */
   llm_model: string;
   /** 模型温度 (0.0 ~ 2.0) */
   llm_temperature: number;
@@ -306,7 +306,7 @@ export type LLMConfigResponse = LLMConfig;
 
 export interface TestLLMRequest {
   master_password?: string;
-  llm_provider?: 'deepseek' | 'openai' | 'anthropic' | 'custom';
+  llm_provider?: 'antigravity' | 'deepseek' | 'openai' | 'anthropic' | 'custom';
   llm_base_url?: string;
   llm_api_key?: string | null;
   llm_model?: string;
@@ -1361,4 +1361,419 @@ export interface SwitchModeRequest {
   target_live_mode: boolean;
   master_password?: string;
 }
+
+// =============================================================================
+// 11. 全自动量化操盘与盈利追踪契约 (Auto-Pilot & Profit Tracking Contracts)
+// =============================================================================
+
+export interface AutoPilotStatusModel {
+  /** 当前是否处于自动操盘开启状态 */
+  is_running: boolean;
+  /** 当前自动操盘会话唯一ID */
+  session_id?: string;
+  /** 自动操盘开启时间戳 (ms) */
+  start_time?: number;
+  /** 开启以来的累计运行时长 (秒) */
+  running_seconds: number;
+  /** 开启时的基准账户总权益 (USDT) */
+  start_equity_usdt: number;
+  /** 当前账户总权益 (USDT) */
+  current_equity_usdt: number;
+  /** 开启以来综合总盈亏 (USDT = 当前权益 - 开启基准权益) */
+  total_pnl_usdt: number;
+  /** 开启以来综合收益率 (例如 0.052 表示 +5.2%) */
+  total_pnl_ratio: number;
+  /** 开启以来累计已实现盈亏 (USDT) */
+  realized_pnl_usdt: number;
+  /** 当前持仓未实现浮动盈亏 (USDT) */
+  unrealized_pnl_usdt: number;
+  /** 开启以来自动交易总笔数 */
+  total_trades_count: number;
+  /** 盈利单数 */
+  winning_trades_count: number;
+  /** 亏损单数 */
+  losing_trades_count: number;
+  /** 开启以来胜率 (0.0 ~ 1.0) */
+  win_rate: number;
+  /** 收益因子 / 盈亏比 */
+  profit_factor: number;
+  /** 开启以来最大回撤百分比 */
+  max_drawdown_pct: number;
+  /** 当前主要关注标的 */
+  active_symbol: string;
+  /** 多标的自动监控轮巡池 */
+  symbols?: string[];
+  /** 最大同时持仓标的数 */
+  max_concurrent_positions?: number;
+  /** 是否启用动态移动保本与跟踪止损 */
+  trailing_stop_enabled?: boolean;
+  /** 浮盈达到目标位比例时移至保本 */
+  breakeven_trigger_ratio?: number;
+  /** 自动跟单最低置信度门槛 */
+  min_confidence: number;
+  /** 是否启用自适应智能杠杆 */
+  auto_leverage_enabled: boolean;
+  /** 是否为实盘环境 */
+  is_live_mode: boolean;
+  /** 最近一次后端自动巡检时间戳 (ms) */
+  last_patrol_time?: number;
+  /** 最近一次后端自动巡检结果概要 */
+  last_patrol_log?: string;
+  /** 最新统计更新时间戳 (ms) */
+  last_updated_at: number;
+}
+
+export interface AutoPilotHistoryPoint {
+  /** 采样时间戳 (ms) */
+  timestamp: number;
+  /** 该时刻账户总权益 (USDT) */
+  equity: number;
+  /** 该时刻累计已实现盈亏 (USDT) */
+  realized_pnl: number;
+  /** 该时刻持仓浮动盈亏 (USDT) */
+  unrealized_pnl: number;
+  /** 该时刻开启以来综合总盈亏 (USDT) */
+  total_pnl: number;
+  /** 该时刻收益率 */
+  pnl_ratio: number;
+}
+
+export interface AutoPilotTradeRecord {
+  /** 记录 ID */
+  id?: string;
+  /** 标的代码 */
+  symbol: string;
+  /** 持仓方向 long/short */
+  pos_side: string;
+  /** 开仓均价 */
+  entry_price: number;
+  /** 平仓价格 */
+  exit_price: number;
+  /** 成交数量 (币数) */
+  size: number;
+  /** 杠杆倍数 */
+  leverage: number;
+  /** 该笔已实现盈亏 (USDT) */
+  realized_pnl: number;
+  /** 该笔收益率 (%) */
+  roi_pct: number;
+  /** 平仓触发原因 */
+  reason: string;
+  /** 平仓完成时间戳 (ms) */
+  timestamp: number;
+}
+
+export interface AutoPilotHistoryResponse {
+  /** 会话ID */
+  session_id?: string;
+  /** 当前是否在运行 */
+  is_running: boolean;
+  /** 时序收益走势采样点列表 */
+  curve: AutoPilotHistoryPoint[];
+  /** 自动操盘产生的平仓明细列表 */
+  trades: AutoPilotTradeRecord[];
+}
+
+export interface AutoPilotStartRequest {
+  min_confidence?: number;
+  auto_leverage_enabled?: boolean;
+  symbol?: string;
+  symbols?: string[];
+  max_concurrent_positions?: number;
+  trailing_stop_enabled?: boolean;
+  breakeven_trigger_ratio?: number;
+}
+
+export interface AutoPilotConfigUpdateRequest {
+  min_confidence?: number;
+  auto_leverage_enabled?: boolean;
+  symbol?: string;
+  symbols?: string[];
+  max_concurrent_positions?: number;
+  trailing_stop_enabled?: boolean;
+  breakeven_trigger_ratio?: number;
+}
+
+export type InstrumentCategory =
+  | 'tradfi'
+  | 'rwa'
+  | 'crypto'
+  | 'commodities'
+  | 'equities'
+  | 'positions'
+  | 'custom';
+
+export interface InstrumentInfo {
+  symbol: string;
+  inst_id: string;
+  inst_type: 'SPOT' | 'SWAP' | 'FUTURES' | 'MARGIN';
+  base_ccy: string;
+  quote_ccy: string;
+  name: string;
+  category: InstrumentCategory;
+  is_tradfi: boolean;
+  ct_val?: number;
+  tick_sz?: number;
+  lot_sz?: number;
+  min_sz?: number;
+  state?: string;
+}
+
+export interface SymbolCategoryGroup {
+  category: InstrumentCategory;
+  category_name: string;
+  icon: string;
+  symbols: InstrumentInfo[];
+}
+
+export interface SymbolListResponse {
+  categories: SymbolCategoryGroup[];
+  total_count: number;
+}
+
+// =============================================================================
+// 12. 模块 A：历史时序数据湖与回测沙盒契约 (Data Lake & Backtest Types)
+// =============================================================================
+
+export interface DataLakeSyncRequest {
+  symbol: string;
+  timeframes?: string[];
+  days_back?: number;
+}
+
+export interface DataLakeStatusItem {
+  symbol: string;
+  timeframe: string;
+  count: number;
+  start_time?: number | null;
+  end_time?: number | null;
+}
+
+export interface DataLakeStatusResponse {
+  total_klines: number;
+  items: DataLakeStatusItem[];
+}
+
+export interface BacktestRunRequest {
+  strategy_name?: string;
+  symbol: string;
+  timeframe?: string;
+  days_back?: number;
+  initial_balance?: number;
+  leverage?: number;
+  taker_fee_rate?: number;
+  maker_fee_rate?: number;
+  slippage_pct?: number;
+  atr_sl_multiplier?: number;
+  breakeven_ratio?: number;
+  params?: Record<string, any>;
+}
+
+export interface BacktestTradeRecord {
+  trade_id: number;
+  entry_time: number;
+  exit_time: number;
+  pos_side: 'long' | 'short';
+  entry_price: number;
+  exit_price: number;
+  size: number;
+  pnl: number;
+  roi_pct: number;
+  fee: number;
+  exit_reason: string;
+  mfe_pct: number;
+  mae_pct: number;
+}
+
+export interface BacktestEquityPoint {
+  timestamp: number;
+  equity: number;
+  drawdown_pct: number;
+}
+
+export interface BacktestResultResponse {
+  experiment_id: string;
+  strategy_name: string;
+  symbol: string;
+  timeframe: string;
+  total_candles: number;
+  initial_balance: number;
+  final_balance: number;
+  total_return_pct: number;
+  annualized_return_pct: number;
+  max_drawdown_pct: number;
+  sharpe_ratio: number;
+  calmar_ratio: number;
+  win_rate: number;
+  profit_factor: number;
+  total_trades: number;
+  winning_trades: number;
+  losing_trades: number;
+  avg_trade_pnl: number;
+  total_fee_paid: number;
+  equity_curve: BacktestEquityPoint[];
+  trades: BacktestTradeRecord[];
+  execution_time_ms: number;
+}
+
+export interface GridSearchRequest {
+  strategy_name?: string;
+  symbol?: string;
+  timeframe?: string;
+  days_back?: number;
+  atr_multipliers?: number[];
+  breakeven_ratios?: number[];
+  leverages?: number[];
+}
+
+export interface GridSearchResultItem {
+  params: Record<string, any>;
+  total_return_pct: number;
+  sharpe_ratio: number;
+  max_drawdown_pct: number;
+  win_rate: number;
+  profit_factor: number;
+  total_trades: number;
+}
+
+export interface GridSearchResponse {
+  best_params: Record<string, any>;
+  items: GridSearchResultItem[];
+}
+
+// =============================================================================
+// 13. 模块 B：全网情报与热点新闻感知契约 (News & Macro Types)
+// =============================================================================
+
+export interface NewsEventItem {
+  id: string;
+  source: string;
+  title: string;
+  content?: string | null;
+  url?: string | null;
+  published_at: number;
+  sentiment_score: number;
+  urgency: 'P0' | 'P1' | 'P2' | string;
+  related_symbols?: string[];
+  is_fud_or_rumor?: boolean;
+  summary_zh?: string | null;
+}
+
+export interface NewsFeedResponse {
+  news: NewsEventItem[];
+  total_count: number;
+}
+
+export interface MacroCalendarEvent {
+  event_id: string;
+  title: string;
+  country: string;
+  impact_level: string;
+  event_time: number;
+  previous_value?: string | null;
+  forecast_value?: string | null;
+  actual_value?: string | null;
+  is_imminent_risk: boolean;
+}
+
+export interface MacroCalendarResponse {
+  events: MacroCalendarEvent[];
+}
+
+// =============================================================================
+// 14. 模块 C：每日自动复盘与知识演化契约 (Daily Review & Knowledge Base Types)
+// =============================================================================
+
+export interface DailyReviewDetail {
+  review_date: string;
+  total_trades: number;
+  winning_trades: number;
+  losing_trades: number;
+  win_rate: number;
+  realized_pnl: number;
+  fee_paid: number;
+  max_drawdown: number;
+  best_trade_pnl: number;
+  worst_trade_pnl: number;
+  summary_markdown: string;
+  lessons_learned?: string[];
+  strategy_adjustments?: Record<string, any>;
+  created_at: string;
+}
+
+export interface DailyReviewListResponse {
+  reviews: DailyReviewDetail[];
+}
+
+export interface TradingKnowledgeRule {
+  id: string;
+  rule_type: 'MISTAKE_AVOIDANCE' | 'BEST_PRACTICE' | 'MACRO_REGIME' | string;
+  symbol_scope: string;
+  trigger_condition: string;
+  action_rule: string;
+  confidence_score: number;
+  source_review_date?: string | null;
+  times_triggered: number;
+  is_active: boolean;
+  created_at?: string;
+}
+
+export interface TradingKnowledgeListResponse {
+  rules: TradingKnowledgeRule[];
+  total_count: number;
+}
+
+// =============================================================================
+// 15. 模块 D：多智能体对抗博弈与 Telegram 契约 (Consensus & Telegram Types)
+// =============================================================================
+
+export interface AgentDebateOpinion {
+  role_name: string;
+  stance: 'BULLISH' | 'BEARISH' | 'NEUTRAL' | string;
+  confidence: number;
+  key_arguments: string[];
+  risk_warnings: string[];
+}
+
+export interface MultiAgentConsensusResponse {
+  consensus_id: string;
+  symbol: string;
+  timestamp: number;
+  consensus_score: number;
+  final_action: SignalAction | string;
+  is_approved_to_execute: boolean;
+  rejection_reason?: string | null;
+  bull_opinion: AgentDebateOpinion;
+  bear_opinion: AgentDebateOpinion;
+  macro_opinion: AgentDebateOpinion;
+  arbitration_summary: string;
+  injected_knowledge_rules: string[];
+  suggested_trade_plan?: Record<string, any> | null;
+}
+
+export interface TelegramConfig {
+  bot_token_masked?: string | null;
+  chat_id_masked?: string | null;
+  is_enabled: boolean;
+  is_panic_enabled: boolean;
+}
+
+export interface TelegramConfigSaveRequest {
+  bot_token: string;
+  chat_id: string;
+  is_enabled?: boolean;
+  is_panic_enabled?: boolean;
+}
+
+export interface TiltProtectionStatus {
+  is_in_cooldown: boolean;
+  cooldown_until_ts?: number | null;
+  cooldown_remaining_mins: number;
+  consecutive_loss_count: number;
+  leverage_penalty_applied: boolean;
+  reason?: string | null;
+}
+
+
+
 

@@ -21,19 +21,31 @@ import {
   Gamepad2,
   Coins,
   AlertTriangle,
+  Search,
 } from 'lucide-react';
 import { useAppStore } from './store/useAppStore';
 import { wsService } from './services/websocket';
 import { marketApi, tradeApi, systemApi, aiApi } from './services/api';
 import { SecurityModal } from './components/SecurityModal';
 import { PaperConfigModal } from './components/PaperConfigModal';
+import { SymbolSelectorModal } from './components/SymbolSelectorModal';
+import { BacktestModal } from './components/BacktestModal';
+import { NewsFeedModal } from './components/NewsFeedModal';
+import { DailyReviewModal } from './components/DailyReviewModal';
+import { ConsensusModal } from './components/ConsensusModal';
+import { QuantStudioModal } from './components/QuantStudioModal';
 import { TradingChart } from './components/TradingChart';
 import { OrderBook } from './components/OrderBook';
 import { TradeList } from './components/TradeList';
 import { AICopilotCard } from './components/AICopilotCard';
-import { OrderForm } from './components/OrderForm';
+import { AutoPilotCard } from './components/AutoPilotCard';
 import { PositionList } from './components/PositionList';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import {
+  getBaseCurrency,
+  isTradFiSymbol,
+  formatPrice,
+} from './utils/symbolHelper';
 
 export const App: React.FC = () => {
   const {
@@ -43,6 +55,9 @@ export const App: React.FC = () => {
     llmConfig,
     openSecurityModal,
     openPaperModal,
+    isStudioModalOpen,
+    openStudioModal,
+    closeStudioModal,
     riskStatus,
     triggerPanicLock,
     resetRiskLock,
@@ -69,11 +84,31 @@ export const App: React.FC = () => {
   const [modeSwitchLoading, setModeSwitchLoading] = useState(false);
   const [modeSwitchError, setModeSwitchError] = useState<string | null>(null);
 
-  const availableSymbols = [
+  const [isSymbolModalOpen, setIsSymbolModalOpen] = useState(false);
+  const [isBacktestModalOpen, setIsBacktestModalOpen] = useState(false);
+  const [isNewsModalOpen, setIsNewsModalOpen] = useState(false);
+  const [isDailyReviewModalOpen, setIsDailyReviewModalOpen] = useState(false);
+  const [isConsensusModalOpen, setIsConsensusModalOpen] = useState(false);
+
+  // 快捷键支持 (Ctrl+P / Cmd+P 打开标的搜索弹窗)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'p') {
+        e.preventDefault();
+        setIsSymbolModalOpen((prev) => !prev);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
+  const quickSymbols = [
     'BTC-USDT-SWAP',
     'ETH-USDT-SWAP',
     'SOL-USDT-SWAP',
-    'DOGE-USDT-SWAP',
+    'XAU-USDT-SWAP',
+    'NVDA-USDT-SWAP',
+    'ONDO-USDT-SWAP',
   ];
 
   // 1. 初始化 WebSocket 连接与全局推流订阅
@@ -249,27 +284,46 @@ export const App: React.FC = () => {
 
           <div className="h-4 w-px bg-bg-border" />
 
-          {/* 标的选择下拉 */}
-          <div className="relative group">
-            <div className="flex items-center space-x-1.5 px-2 py-1 rounded bg-bg-elevated border border-bg-border cursor-pointer hover:border-trade-ai transition-colors">
-              <span className="font-bold text-xs text-text-primary">{activeSymbol}</span>
-              <span className="rounded bg-trade-ai/20 text-trade-ai px-1 py-0.2 text-[9px] font-mono">永续</span>
-              <ChevronDown className="w-3 h-3 text-text-muted" />
-            </div>
+          {/* 标的选择器与全景探索 */}
+          <div className="flex items-center space-x-1.5">
+            <button
+              onClick={() => setIsSymbolModalOpen(true)}
+              className="flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-bg-elevated border border-bg-border hover:border-trade-ai transition-all text-xs group cursor-pointer shadow-sm"
+              title="点击打开全景标的与 TradFi 探索 (Ctrl+P / Cmd+P)"
+            >
+              <Search className="w-3.5 h-3.5 text-text-muted group-hover:text-trade-ai transition-colors" />
+              <span className="font-bold font-mono text-text-primary">{activeSymbol}</span>
+              {isTradFiSymbol(activeSymbol) ? (
+                <span className="rounded bg-amber-500/20 text-amber-400 border border-amber-500/30 px-1 py-0.2 text-[9px] font-medium">
+                  TradFi
+                </span>
+              ) : (
+                <span className="rounded bg-trade-ai/20 text-trade-ai px-1 py-0.2 text-[9px] font-mono">
+                  永续
+                </span>
+              )}
+              <ChevronDown className="w-3 h-3 text-text-muted group-hover:text-text-primary transition-colors" />
+            </button>
 
-            {/* 下拉菜单 */}
-            <div className="absolute left-0 top-full mt-1 hidden group-hover:block z-50 w-44 rounded-lg border border-bg-border bg-bg-secondary p-1 shadow-2xl">
-              {availableSymbols.map((sym) => (
-                <button
-                  key={sym}
-                  onClick={() => setActiveSymbol(sym)}
-                  className={`w-full text-left px-2.5 py-1.5 text-xs font-mono rounded hover:bg-bg-elevated transition-colors ${
-                    activeSymbol === sym ? 'text-trade-ai font-bold bg-bg-elevated' : 'text-text-secondary'
-                  }`}
-                >
-                  {sym}
-                </button>
-              ))}
+            {/* 快速常用标的切换气泡 */}
+            <div className="hidden 2xl:flex items-center space-x-1 pl-1">
+              {quickSymbols.slice(0, 5).map((sym) => {
+                const isCur = activeSymbol === sym;
+                const isTradFi = isTradFiSymbol(sym);
+                return (
+                  <button
+                    key={sym}
+                    onClick={() => setActiveSymbol(sym)}
+                    className={`px-1.5 py-0.5 rounded text-[10px] font-mono transition-colors ${
+                      isCur
+                        ? 'bg-trade-ai text-white font-bold'
+                        : 'bg-bg-elevated/70 text-text-muted hover:text-text-primary hover:bg-bg-elevated'
+                    }`}
+                  >
+                    {isTradFi && '🏛️ '}{getBaseCurrency(sym)}
+                  </button>
+                );
+              })}
             </div>
           </div>
 
@@ -282,7 +336,7 @@ export const App: React.FC = () => {
                     (ticker.change_24h_pct ?? 0) >= 0 ? 'text-trade-up' : 'text-trade-down'
                   }`}
                 >
-                  ${(ticker.last_price ?? 0).toFixed(1)}
+                  ${formatPrice(ticker.last_price, activeSymbol)}
                 </span>
                 <span
                   className={`ml-1 text-[11px] font-medium ${
@@ -296,10 +350,10 @@ export const App: React.FC = () => {
 
               <div className="hidden xl:flex items-center space-x-3 text-[11px] text-text-muted">
                 <span>
-                  高: <span className="text-text-primary">${(ticker.high_24h ?? 0).toFixed(1)}</span>
+                  高: <span className="text-text-primary">${formatPrice(ticker.high_24h, activeSymbol)}</span>
                 </span>
                 <span>
-                  低: <span className="text-text-primary">${(ticker.low_24h ?? 0).toFixed(1)}</span>
+                  低: <span className="text-text-primary">${formatPrice(ticker.low_24h, activeSymbol)}</span>
                 </span>
                 <span>
                   24h量: <span className="text-text-primary">{(ticker.volume_24h ?? 0).toLocaleString()}</span>
@@ -387,8 +441,51 @@ export const App: React.FC = () => {
           </span>
         </div>
 
-        {/* 右侧：凭证设置、大模型配置、风控与 Panic Button */}
+        {/* 右侧：v3.0工具栏、凭证设置、大模型配置、风控与 Panic Button */}
         <div className="flex items-center space-x-2">
+          {/* v3.0 快捷工具组 */}
+          <div className="flex items-center space-x-1 border-r border-bg-border pr-2">
+            <button
+              onClick={() => setIsBacktestModalOpen(true)}
+              className="flex items-center space-x-1 px-2 py-1 rounded bg-bg-elevated hover:bg-emerald-950/40 text-emerald-400 hover:text-emerald-300 border border-emerald-500/20 text-xs font-medium transition cursor-pointer"
+              title="极速向量化回测沙盒 & 数据湖"
+            >
+              <span>📊 回测</span>
+            </button>
+
+            <button
+              onClick={() => setIsNewsModalOpen(true)}
+              className="flex items-center space-x-1 px-2 py-1 rounded bg-bg-elevated hover:bg-blue-950/40 text-blue-400 hover:text-blue-300 border border-blue-500/20 text-xs font-medium transition cursor-pointer"
+              title="全网宏观情报与热点新闻感知"
+            >
+              <span>📰 情报</span>
+            </button>
+
+            <button
+              onClick={() => setIsDailyReviewModalOpen(true)}
+              className="flex items-center space-x-1 px-2 py-1 rounded bg-bg-elevated hover:bg-purple-950/40 text-purple-400 hover:text-purple-300 border border-purple-500/20 text-xs font-medium transition cursor-pointer"
+              title="每日自动复盘与避坑知识大脑"
+            >
+              <span>📖 复盘</span>
+            </button>
+
+            <button
+              onClick={() => setIsConsensusModalOpen(true)}
+              className="flex items-center space-x-1 px-2 py-1 rounded bg-bg-elevated hover:bg-indigo-950/40 text-indigo-400 hover:text-indigo-300 border border-indigo-500/20 text-xs font-medium transition cursor-pointer"
+              title="多智能体博弈对抗辩论与 TG 设置"
+            >
+              <span>🤖 博弈</span>
+            </button>
+
+            <button
+              onClick={openStudioModal}
+              className="flex items-center space-x-1 px-2 py-1 rounded bg-bg-elevated hover:bg-cyan-950/40 text-cyan-400 hover:text-cyan-300 border border-cyan-500/30 text-xs font-semibold transition cursor-pointer shadow-sm shadow-cyan-500/10"
+              title="v3.5 AI Quant Studio 策略代码实验室 & Codex Harness"
+            >
+              <span>✨ 实验室</span>
+            </button>
+          </div>
+
           {/* OKX 凭证配置按钮 */}
           <button
             onClick={() => openSecurityModal('okx')}
@@ -523,10 +620,10 @@ export const App: React.FC = () => {
 
 
 
-          {/* 下单控制面板 */}
+          {/* AI 全自动量化操盘控制与收益中枢 */}
           <div className="flex-1 overflow-hidden">
-            <ErrorBoundary fallbackTitle="下单控制面板加载异常">
-              <OrderForm />
+            <ErrorBoundary fallbackTitle="自动量化操盘控制面板加载异常">
+              <AutoPilotCard />
             </ErrorBoundary>
           </div>
         </section>
@@ -606,6 +703,13 @@ export const App: React.FC = () => {
         <PaperConfigModal />
       </ErrorBoundary>
 
+      {/* 全景标的检索与 TradFi 探索切换弹窗 */}
+      <SymbolSelectorModal
+        isOpen={isSymbolModalOpen}
+        onClose={() => setIsSymbolModalOpen(false)}
+        onSelectSymbol={(sym) => setActiveSymbol(sym)}
+      />
+
       {/* 切换至真实实盘二次安全确认模态框 */}
       {isLiveConfirmModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm animate-fade-in p-4">
@@ -661,6 +765,31 @@ export const App: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* 8. v3.0 核心全景模态窗挂载 */}
+      <BacktestModal
+        isOpen={isBacktestModalOpen}
+        onClose={() => setIsBacktestModalOpen(false)}
+        defaultSymbol={activeSymbol}
+      />
+      <NewsFeedModal
+        isOpen={isNewsModalOpen}
+        onClose={() => setIsNewsModalOpen(false)}
+      />
+      <DailyReviewModal
+        isOpen={isDailyReviewModalOpen}
+        onClose={() => setIsDailyReviewModalOpen(false)}
+      />
+      <ConsensusModal
+        isOpen={isConsensusModalOpen}
+        onClose={() => setIsConsensusModalOpen(false)}
+        activeSymbol={activeSymbol}
+      />
+      {/* 9. v3.5 AI Quant Studio 策略实验室模态窗挂载 */}
+      <QuantStudioModal
+        isOpen={isStudioModalOpen}
+        onClose={closeStudioModal}
+      />
     </div>
   );
 };

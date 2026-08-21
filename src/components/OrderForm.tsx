@@ -19,6 +19,7 @@ import {
 import { useAppStore } from '../store/useAppStore';
 import { tradeApi, riskApi } from '../services/api';
 import { InstrumentType, OrderType, OrderSide, PosSide, OrderCreateRequest } from '../types';
+import { getBaseCurrency } from '../utils/symbolHelper';
 
 export const OrderForm: React.FC = () => {
   const {
@@ -68,7 +69,12 @@ export const OrderForm: React.FC = () => {
     if (sym.includes('BTC')) return 63428.0;
     if (sym.includes('ETH')) return 2680.0;
     if (sym.includes('SOL')) return 188.0;
-    return 0.155;
+    if (sym.includes('XAU') || sym.includes('PAXG')) return 2650.0;
+    if (sym.includes('NVDA')) return 128.5;
+    if (sym.includes('TSLA')) return 245.0;
+    if (sym.includes('EUR')) return 1.085;
+    if (sym.includes('ONDO')) return 0.725;
+    return 100.0;
   };
 
   // 1. 初始化与标的切换时更新价格
@@ -232,7 +238,7 @@ export const OrderForm: React.FC = () => {
       if (balRes.status === 'fulfilled') setBalance(balRes.value);
       if (ordRes.status === 'fulfilled') setOrders(ordRes.value);
 
-      setSuccessMsg(`订单委托提交成功！(${side === 'buy' ? '买入做多' : '卖出做空'} ${numSize} BTC)`);
+      setSuccessMsg(`订单委托提交成功！(${side === 'buy' ? '买入做多' : '卖出做空'} ${numSize} ${getBaseCurrency(activeSymbol)})`);
       setTimeout(() => setSuccessMsg(null), 3000);
     } catch (err: unknown) {
 
@@ -396,7 +402,7 @@ export const OrderForm: React.FC = () => {
         <div>
           <div className="flex justify-between text-text-muted mb-1 text-[11px]">
             <span>委托数量</span>
-            <span>BTC</span>
+            <span className="font-mono text-text-secondary">{getBaseCurrency(activeSymbol)}</span>
           </div>
           <div className="relative">
             <input

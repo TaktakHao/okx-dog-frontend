@@ -8,6 +8,11 @@ import React, { useEffect, useState } from 'react';
 import { Activity, Zap } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
 import { MarketTrade } from '../types';
+import {
+  getBaseCurrency,
+  formatPrice,
+  formatSize,
+} from '../utils/symbolHelper';
 
 export const TradeList: React.FC = () => {
   const {
@@ -25,8 +30,8 @@ export const TradeList: React.FC = () => {
    */
   const generateMockTrade = (basePrice: number): MarketTrade => {
     const isBuy = Math.random() > 0.48;
-    const priceOffset = (Math.random() - 0.5) * 2;
-    const price = Number((basePrice + priceOffset).toFixed(1));
+    const priceOffset = (Math.random() - 0.5) * (basePrice * 0.001);
+    const price = Number((basePrice + priceOffset).toFixed(basePrice >= 100 ? 2 : 4));
     const size = Number((0.05 + Math.random() * 2.5).toFixed(3));
     const isWhale = size >= 1.8;
 
@@ -45,7 +50,12 @@ export const TradeList: React.FC = () => {
     if (sym.includes('BTC')) return 63428.0;
     if (sym.includes('ETH')) return 2680.0;
     if (sym.includes('SOL')) return 188.0;
-    return 0.155;
+    if (sym.includes('XAU') || sym.includes('PAXG')) return 2650.0;
+    if (sym.includes('NVDA')) return 128.5;
+    if (sym.includes('TSLA')) return 245.0;
+    if (sym.includes('EUR')) return 1.085;
+    if (sym.includes('ONDO')) return 0.725;
+    return 100.0;
   };
 
   // 初始化历史成交记录
@@ -104,7 +114,7 @@ export const TradeList: React.FC = () => {
       {/* 2. 表头 */}
       <div className="grid grid-cols-3 px-3 py-1 text-[10px] font-mono text-text-muted border-b border-bg-border/60 bg-bg-primary/40">
         <span>价格 (USDT)</span>
-        <span className="text-right">数量 (BTC)</span>
+        <span className="text-right">数量 ({getBaseCurrency(activeSymbol)})</span>
         <span className="text-right">时间</span>
       </div>
 
@@ -135,12 +145,12 @@ export const TradeList: React.FC = () => {
               {/* 价格 */}
               <span className={`font-semibold flex items-center space-x-1 ${isBuy ? 'text-trade-up' : 'text-trade-down'}`}>
                 {trade.is_whale_trade && <Zap className="w-3 h-3 text-amber-400 shrink-0" />}
-                <span>{(trade.price ?? 0).toFixed(1)}</span>
+                <span>{formatPrice(trade.price, activeSymbol)}</span>
               </span>
 
               {/* 数量 */}
               <span className="text-right text-text-primary font-medium">
-                {(trade.size ?? 0).toFixed(3)}
+                {formatSize(trade.size, activeSymbol)}
               </span>
 
               {/* 时间 */}

@@ -10,6 +10,11 @@ import { Layers, ArrowUp, ArrowDown } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
 import { marketApi } from '../services/api';
 import { OrderBookDepth, OrderBookLevel } from '../types';
+import {
+  getBaseCurrency,
+  formatPrice,
+  formatSize,
+} from '../utils/symbolHelper';
 
 export const OrderBook: React.FC = () => {
   const {
@@ -97,7 +102,12 @@ export const OrderBook: React.FC = () => {
       if (sym.includes('BTC')) return 63428.0;
       if (sym.includes('ETH')) return 2680.0;
       if (sym.includes('SOL')) return 188.0;
-      return 0.155;
+      if (sym.includes('XAU') || sym.includes('PAXG')) return 2650.0;
+      if (sym.includes('NVDA')) return 128.5;
+      if (sym.includes('TSLA')) return 245.0;
+      if (sym.includes('EUR')) return 1.085;
+      if (sym.includes('ONDO')) return 0.725;
+      return 100.0;
     };
 
     const fetchDepth = async () => {
@@ -139,7 +149,12 @@ export const OrderBook: React.FC = () => {
       if (sym.includes('BTC')) return 63428.0;
       if (sym.includes('ETH')) return 2680.0;
       if (sym.includes('SOL')) return 188.0;
-      return 0.155;
+      if (sym.includes('XAU') || sym.includes('PAXG')) return 2650.0;
+      if (sym.includes('NVDA')) return 128.5;
+      if (sym.includes('TSLA')) return 245.0;
+      if (sym.includes('EUR')) return 1.085;
+      if (sym.includes('ONDO')) return 0.725;
+      return 100.0;
     };
     const current = localOrderBook || generateFallbackDepth(ticker?.last_price || getSymbolDefaultPrice(activeSymbol));
 
@@ -231,7 +246,7 @@ export const OrderBook: React.FC = () => {
       {/* 2. 表头 */}
       <div className="grid grid-cols-3 px-3 py-1 text-[10px] font-mono text-text-muted border-b border-bg-border/60 bg-bg-primary/40">
         <span>价格 (USDT)</span>
-        <span className="text-right">数量 (BTC)</span>
+        <span className="text-right">数量 ({getBaseCurrency(activeSymbol)})</span>
         <span className="text-right">累计深度</span>
       </div>
 
@@ -254,10 +269,10 @@ export const OrderBook: React.FC = () => {
                     className="absolute right-0 top-0 bottom-0 bg-trade-down/15 group-hover:bg-trade-down/25 transition-all pointer-events-none"
                     style={{ width: `${depthPct}%` }}
                   />
-                  <span className="relative z-10 text-trade-down font-medium">{(ask.price ?? 0).toFixed(1)}</span>
-                  <span className="relative z-10 text-right text-text-primary">{(ask.size ?? 0).toFixed(3)}</span>
+                  <span className="relative z-10 text-trade-down font-medium">{formatPrice(ask.price, activeSymbol)}</span>
+                  <span className="relative z-10 text-right text-text-primary">{formatSize(ask.size, activeSymbol)}</span>
                   <span className="relative z-10 text-right text-text-muted">
-                    {((ask.cumulative_size || ask.size) ?? 0).toFixed(3)}
+                    {formatSize(ask.cumulative_size || ask.size, activeSymbol)}
                   </span>
                 </div>
               );
@@ -273,8 +288,7 @@ export const OrderBook: React.FC = () => {
                 (ticker?.change_24h_pct || 0) >= 0 ? 'text-trade-up' : 'text-trade-down'
               }`}
             >
-              ${(ticker?.last_price || (activeSymbol.includes('BTC') ? 63428.0 : activeSymbol.includes('ETH') ? 2680.0 : activeSymbol.includes('SOL') ? 188.0 : 0.155)).toFixed(activeSymbol.includes('DOGE') ? 4 : 1)}
-
+              ${formatPrice(ticker?.last_price, activeSymbol)}
             </span>
             {(ticker?.change_24h_pct || 0) >= 0 ? (
               <ArrowUp className="w-3 h-3 text-trade-up" />
