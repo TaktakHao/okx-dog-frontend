@@ -87,11 +87,20 @@ class WebSocketClient {
   public unsubscribe(channel: string, handler?: MessageHandler) {
     if (handler && this.handlers.has(channel)) {
       this.handlers.get(channel)!.delete(handler);
+      if (this.handlers.get(channel)!.size === 0) {
+        this.handlers.delete(channel);
+      }
+    } else if (!handler) {
+      this.handlers.delete(channel);
     }
 
-    if (this.subscribedChannels.has(channel)) {
-      this.subscribedChannels.delete(channel);
-      this.sendSubscription([channel], 'unsubscribe');
+    // 仅当该频道无任何监听器时，才从订阅集合移除并向服务端发送 unsubscribe 报文
+    const remainingHandlers = this.handlers.get(channel);
+    if (!remainingHandlers || remainingHandlers.size === 0) {
+      if (this.subscribedChannels.has(channel)) {
+        this.subscribedChannels.delete(channel);
+        this.sendSubscription([channel], 'unsubscribe');
+      }
     }
   }
 

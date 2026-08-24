@@ -32,47 +32,26 @@ interface SymbolSelectorModalProps {
   onSelectSymbol: (symbol: string) => void;
 }
 
-const DEFAULT_WATCHLIST = [
-  'BTC-USDT-SWAP',
-  'ETH-USDT-SWAP',
-  'SOL-USDT-SWAP',
-  'XAU-USDT-SWAP',
-  'NVDA-USDT-SWAP',
-  'ONDO-USDT-SWAP',
-];
-
 export const SymbolSelectorModal: React.FC<SymbolSelectorModalProps> = ({
   isOpen,
   onClose,
   onSelectSymbol,
 }) => {
-  const { activeSymbol, positions, isLiveMode } = useAppStore();
+  const { activeSymbol, positions, isLiveMode, focusSymbols, addFocusSymbol, removeFocusSymbol } = useAppStore();
   const [searchQuery, setSearchQuery] = useState('');
   const [activeTab, setActiveTab] = useState<'positions' | 'tradfi' | 'crypto' | 'watchlist'>('tradfi');
   const [categoryGroups, setCategoryGroups] = useState<SymbolCategoryGroup[]>([]);
   const [isLoading, setIsLoading] = useState(false);
 
-  // 自选标的列表持久化到 localStorage
-  const [watchlist, setWatchlist] = useState<string[]>(() => {
-    try {
-      const saved = localStorage.getItem('okx_dog_watchlist');
-      return saved ? JSON.parse(saved) : DEFAULT_WATCHLIST;
-    } catch {
-      return DEFAULT_WATCHLIST;
-    }
-  });
+  const watchlist = focusSymbols;
 
   const toggleFavorite = (e: React.MouseEvent, symbol: string) => {
     e.stopPropagation();
-    setWatchlist((prev) => {
-      const next = prev.includes(symbol) ? prev.filter((s) => s !== symbol) : [...prev, symbol];
-      try {
-        localStorage.setItem('okx_dog_watchlist', JSON.stringify(next));
-      } catch (err) {
-        console.warn('保存自选失败:', err);
-      }
-      return next;
-    });
+    if (focusSymbols.includes(symbol)) {
+      removeFocusSymbol(symbol);
+    } else {
+      addFocusSymbol(symbol);
+    }
   };
 
   // 标的库拉取
@@ -178,12 +157,8 @@ export const SymbolSelectorModal: React.FC<SymbolSelectorModalProps> = ({
     if (!custom.includes('-')) {
       custom = `${custom}-USDT-SWAP`;
     }
-    if (!watchlist.includes(custom)) {
-      const next = [...watchlist, custom];
-      setWatchlist(next);
-      try {
-        localStorage.setItem('okx_dog_watchlist', JSON.stringify(next));
-      } catch (err) {}
+    if (!focusSymbols.includes(custom)) {
+      addFocusSymbol(custom);
     }
     onSelectSymbol(custom);
     onClose();

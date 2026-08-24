@@ -19,7 +19,7 @@ import {
 import { useAppStore } from '../store/useAppStore';
 import { tradeApi, riskApi } from '../services/api';
 import { InstrumentType, OrderType, OrderSide, PosSide, OrderCreateRequest } from '../types';
-import { getBaseCurrency } from '../utils/symbolHelper';
+import { getBaseCurrency, getSymbolDefaultPrice } from '../utils/symbolHelper';
 
 export const OrderForm: React.FC = () => {
   const {
@@ -65,27 +65,15 @@ export const OrderForm: React.FC = () => {
   const [isPanicExecuting, setIsPanicExecuting] = useState<boolean>(false);
   const [panicResultMsg, setPanicResultMsg] = useState<string | null>(null);
 
-  const getSymbolDefaultPrice = (sym: string) => {
-    if (sym.includes('BTC')) return 63428.0;
-    if (sym.includes('ETH')) return 2680.0;
-    if (sym.includes('SOL')) return 188.0;
-    if (sym.includes('XAU') || sym.includes('PAXG')) return 2650.0;
-    if (sym.includes('NVDA')) return 128.5;
-    if (sym.includes('TSLA')) return 245.0;
-    if (sym.includes('EUR')) return 1.085;
-    if (sym.includes('ONDO')) return 0.725;
-    return 100.0;
-  };
-
   // 1. 初始化与标的切换时更新价格
   useEffect(() => {
-    if (ticker?.last_price) {
+    if (ticker?.last_price && ticker.symbol === activeSymbol) {
       setPrice(ticker.last_price.toFixed(ticker.last_price >= 100 ? 1 : 4));
     } else {
       const def = getSymbolDefaultPrice(activeSymbol);
       setPrice(def.toFixed(def >= 100 ? 1 : 4));
     }
-  }, [activeSymbol, ticker?.last_price]);
+  }, [activeSymbol, ticker?.last_price, ticker?.symbol]);
 
   // 2. 响应盘口点选价格回填
   useEffect(() => {
@@ -121,7 +109,8 @@ export const OrderForm: React.FC = () => {
   }, [adoptedOrderParams, riskRules, setAdoptedOrderParams]);
 
   // 计算名义价值、保证金与风控校验
-  const numPrice = parseFloat(price) || ticker?.last_price || getSymbolDefaultPrice(activeSymbol);
+  const activePrice = ticker && ticker.symbol === activeSymbol ? ticker.last_price : undefined;
+  const numPrice = parseFloat(price) || activePrice || getSymbolDefaultPrice(activeSymbol);
   const numSize = parseFloat(size) || 0;
   const notionalUsdt = numPrice * numSize;
   const requiredMargin = leverage > 0 ? notionalUsdt / leverage : notionalUsdt;

@@ -25,7 +25,7 @@ import {
 } from 'lucide-react';
 import { useAppStore } from './store/useAppStore';
 import { wsService } from './services/websocket';
-import { marketApi, tradeApi, systemApi, aiApi } from './services/api';
+import { marketApi, tradeApi, systemApi, aiApi, autoPilotApi } from './services/api';
 import { SecurityModal } from './components/SecurityModal';
 import { PaperConfigModal } from './components/PaperConfigModal';
 import { SymbolSelectorModal } from './components/SymbolSelectorModal';
@@ -64,6 +64,12 @@ export const App: React.FC = () => {
     circuitBreakReason,
     activeSymbol,
     setActiveSymbol,
+    focusSymbols,
+    focusMode,
+    setFocusMode,
+    removeFocusSymbol,
+    focusTickers,
+    updateFocusTicker,
     ticker,
     setTicker,
     setBalance,
@@ -72,6 +78,8 @@ export const App: React.FC = () => {
     setIndicators,
     setAIAnalysis,
     setIsAiAnalyzing,
+    setAutoPilotStatus,
+    setAutoPilotHistory,
     balance,
   } = useAppStore();
 
@@ -102,52 +110,75 @@ export const App: React.FC = () => {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
-  const quickSymbols = [
-    'BTC-USDT-SWAP',
-    'ETH-USDT-SWAP',
-    'SOL-USDT-SWAP',
-    'XAU-USDT-SWAP',
-    'NVDA-USDT-SWAP',
-    'ONDO-USDT-SWAP',
-  ];
-
-  // 1. 初始化 WebSocket 连接与全局推流订阅
+  // 1. 全局 WebSocket 连接建立与基础账户频道常驻监听
   useEffect(() => {
     wsService.connect();
 
-    // 订阅全局行情、持仓、资产与订单私有频道
-    wsService.subscribe(`ticker:${activeSymbol}`, (payload) => {
-      if (payload.data) setTicker(payload.data as any);
-    });
-
-    wsService.subscribe('positions', (payload) => {
+    const handlePositions = (payload: any) => {
       if (payload.data) setPositions(payload.data as any);
-    });
-
-    wsService.subscribe('account', (payload) => {
+    };
+    const handleAccount = (payload: any) => {
       if (payload.data) setBalance(payload.data as any);
-    });
-
-    wsService.subscribe('orders', (payload) => {
+    };
+    const handleOrders = (payload: any) => {
       if (payload.data) {
         tradeApi.getOrders().then((ordList) => setOrders(Array.isArray(ordList) ? ordList : [])).catch(() => {});
       }
-    });
+    };
 
-    // 监听网络连通状态
+    wsService.subscribe('positions', handlePositions);
+    wsService.subscribe('account', handleAccount);
+    wsService.subscribe('orders', handleOrders);
+
     const checkTimer = setInterval(() => {
       setIsWsConnected(wsService.getStatus());
     }, 3000);
 
     return () => {
       clearInterval(checkTimer);
+      wsService.unsubscribe('positions', handlePositions);
+      wsService.unsubscribe('account', handleAccount);
+      wsService.unsubscribe('orders', handleOrders);
       wsService.disconnect();
     };
-  }, [activeSymbol, setTicker, setPositions, setBalance, setOrders]);
+  }, [setPositions, setBalance, setOrders]);
+
+  // 1.1 动态标的行情订阅 (仅更新频道，不断开底层连接)
+  useEffect(() => {
+    const handleActiveTicker = (payload: any) => {
+      if (payload.data && (!payload.data.symbol || payload.data.symbol === activeSymbol)) {
+        setTicker(payload.data as any);
+      }
+    };
+    wsService.subscribe(`ticker:${activeSymbol}`, handleActiveTicker);
+
+    const focusHandlers: Record<string, (payload: any) => void> = {};
+    focusSymbols.forEach((sym) => {
+      const handler = (payload: any) => {
+        if (payload.data && (!payload.data.symbol || payload.data.symbol === sym)) {
+          updateFocusTicker(payload.data as any);
+        }
+      };
+      focusHandlers[sym] = handler;
+      wsService.subscribe(`ticker:${sym}`, handler);
+    });
+
+    // 通知后端订阅专注标的
+    marketApi.subscribeFocus(focusSymbols).catch(() => {});
+
+    return () => {
+      wsService.unsubscribe(`ticker:${activeSymbol}`, handleActiveTicker);
+      Object.entries(focusHandlers).forEach(([sym, handler]) => {
+        wsService.unsubscribe(`ticker:${sym}`, handler);
+      });
+    };
+  }, [activeSymbol, focusSymbols.join(','), setTicker, updateFocusTicker]);
 
   // 2. 初始化与模式切换时拉取账户资产、最新行情、多周期指标与实时 AI 研判
   useEffect(() => {
     let isMounted = true;
+    const currentSymbol = activeSymbol;
+
     const initData = async () => {
       try {
         setIsAiAnalyzing(true);
@@ -162,12 +193,18 @@ export const App: React.FC = () => {
 
         if (!isMounted) return;
 
-        if (tk.status === 'fulfilled') setTicker(tk.value);
+        if (tk.status === 'fulfilled' && tk.value && tk.value.symbol === currentSymbol) {
+          setTicker(tk.value);
+        }
         if (bal.status === 'fulfilled') setBalance(bal.value);
         if (pos.status === 'fulfilled') setPositions(Array.isArray(pos.value) ? pos.value : []);
         if (ord.status === 'fulfilled') setOrders(Array.isArray(ord.value) ? ord.value : []);
-        if (ind.status === 'fulfilled') setIndicators(ind.value);
-        if (ai.status === 'fulfilled') setAIAnalysis(ai.value);
+        if (ind.status === 'fulfilled' && ind.value && ind.value.symbol === currentSymbol) {
+          setIndicators(ind.value);
+        }
+        if (ai.status === 'fulfilled' && ai.value && ai.value.symbol === currentSymbol) {
+          setAIAnalysis(ai.value);
+        }
       } catch (err) {
         console.warn('初始化数据拉取异常:', err);
       } finally {
@@ -194,9 +231,22 @@ export const App: React.FC = () => {
     return () => clearInterval(balanceTimer);
   }, [isLiveMode, setBalance]);
 
+  // 切换单标的专注模式 vs 多标的池模式
+  const handleToggleFocusMode = async () => {
+    const nextMode = focusMode === 'SINGLE_SYMBOL' ? 'MULTI_SYMBOL_POOL' : 'SINGLE_SYMBOL';
+    setFocusMode(nextMode);
+    try {
+      await autoPilotApi.updateConfig({
+        focus_mode: nextMode,
+        symbol: activeSymbol,
+        focus_symbols: focusSymbols,
+      });
+    } catch (err) {
+      console.warn('更新自动操盘模式失败:', err);
+    }
+  };
 
   // 顶部 Panic 快捷全平点击
-
   const handleHeaderPanic = () => {
     if (!headerPanicConfirm) {
       setHeaderPanicConfirm(true);
@@ -225,14 +275,18 @@ export const App: React.FC = () => {
     try {
       await systemApi.switchMode(false);
       setLiveMode(false);
-      const [bal, pos, ord] = await Promise.allSettled([
+      const [bal, pos, ord, apStatus, apHistory] = await Promise.allSettled([
         tradeApi.getAccountBalance(),
         tradeApi.getPositions(),
         tradeApi.getOrders(),
+        autoPilotApi.getStatus(),
+        autoPilotApi.getHistory(),
       ]);
       if (bal.status === 'fulfilled') setBalance(bal.value);
       if (pos.status === 'fulfilled') setPositions(Array.isArray(pos.value) ? pos.value : []);
       if (ord.status === 'fulfilled') setOrders(Array.isArray(ord.value) ? ord.value : []);
+      if (apStatus.status === 'fulfilled' && apStatus.value) setAutoPilotStatus(apStatus.value);
+      if (apHistory.status === 'fulfilled' && apHistory.value) setAutoPilotHistory(apHistory.value);
     } catch (err) {
       console.warn('切换到模拟模式异常:', err);
     } finally {
@@ -249,17 +303,21 @@ export const App: React.FC = () => {
       await systemApi.switchMode(true, liveMasterPassword);
       setLiveMode(true);
       setIsLiveConfirmModalOpen(false);
-      const [bal, pos, ord] = await Promise.allSettled([
+      setLiveMasterPassword('');
+      const [bal, pos, ord, apStatus, apHistory] = await Promise.allSettled([
         tradeApi.getAccountBalance(),
         tradeApi.getPositions(),
         tradeApi.getOrders(),
+        autoPilotApi.getStatus(),
+        autoPilotApi.getHistory(),
       ]);
       if (bal.status === 'fulfilled') setBalance(bal.value);
       if (pos.status === 'fulfilled') setPositions(Array.isArray(pos.value) ? pos.value : []);
       if (ord.status === 'fulfilled') setOrders(Array.isArray(ord.value) ? ord.value : []);
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : '切换失败';
-      setModeSwitchError(msg);
+      if (apStatus.status === 'fulfilled' && apStatus.value) setAutoPilotStatus(apStatus.value);
+      if (apHistory.status === 'fulfilled' && apHistory.value) setAutoPilotHistory(apHistory.value);
+    } catch (err: any) {
+      setModeSwitchError(err.message || '切换至实盘模式失败，请检查主密码');
     } finally {
       setModeSwitchLoading(false);
     }
@@ -270,10 +328,10 @@ export const App: React.FC = () => {
     <div className="flex h-screen w-screen flex-col bg-bg-primary text-text-primary overflow-hidden font-sans select-none">
       {/* 1. 顶部全局金融级导航与行情状态栏 */}
       <header className="flex h-12 shrink-0 items-center justify-between border-b border-bg-border bg-bg-secondary px-3">
-        {/* 左侧：Logo & 标的切换 & 24h 实时行情 */}
-        <div className="flex items-center space-x-3">
+        {/* 左侧：Logo & Focus Bar 专注标的栏 & 24h 实时行情 */}
+        <div className="flex items-center space-x-3 overflow-hidden">
           {/* Logo */}
-          <div className="flex items-center space-x-2">
+          <div className="flex items-center space-x-2 shrink-0">
             <div className="h-7 w-7 rounded-lg bg-gradient-to-tr from-trade-ai to-purple-600 flex items-center justify-center font-bold text-white shadow-md shadow-trade-ai/20 text-sm">
               🐕
             </div>
@@ -282,10 +340,10 @@ export const App: React.FC = () => {
             </span>
           </div>
 
-          <div className="h-4 w-px bg-bg-border" />
+          <div className="h-4 w-px bg-bg-border shrink-0" />
 
-          {/* 标的选择器与全景探索 */}
-          <div className="flex items-center space-x-1.5">
+          {/* 标的选择器入口 */}
+          <div className="flex items-center space-x-1.5 shrink-0">
             <button
               onClick={() => setIsSymbolModalOpen(true)}
               className="flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-bg-elevated border border-bg-border hover:border-trade-ai transition-all text-xs group cursor-pointer shadow-sm"
@@ -304,27 +362,83 @@ export const App: React.FC = () => {
               )}
               <ChevronDown className="w-3 h-3 text-text-muted group-hover:text-text-primary transition-colors" />
             </button>
+          </div>
 
-            {/* 快速常用标的切换气泡 */}
-            <div className="hidden 2xl:flex items-center space-x-1 pl-1">
-              {quickSymbols.slice(0, 5).map((sym) => {
-                const isCur = activeSymbol === sym;
-                const isTradFi = isTradFiSymbol(sym);
-                return (
-                  <button
-                    key={sym}
-                    onClick={() => setActiveSymbol(sym)}
-                    className={`px-1.5 py-0.5 rounded text-[10px] font-mono transition-colors ${
-                      isCur
-                        ? 'bg-trade-ai text-white font-bold'
-                        : 'bg-bg-elevated/70 text-text-muted hover:text-text-primary hover:bg-bg-elevated'
-                    }`}
-                  >
-                    {isTradFi && '🏛️ '}{getBaseCurrency(sym)}
-                  </button>
-                );
-              })}
-            </div>
+          {/* 🎯 交互式 Focus Bar 专注标的栏 */}
+          <div className="hidden md:flex items-center space-x-1.5 pl-1 overflow-x-auto no-scrollbar py-0.5">
+            {/* 专注模式切换胶囊 */}
+            <button
+              onClick={handleToggleFocusMode}
+              className={`flex items-center space-x-1 px-2 py-0.5 rounded-full text-[10px] font-bold border transition-all cursor-pointer ${
+                focusMode === 'SINGLE_SYMBOL'
+                  ? 'bg-purple-950/60 text-purple-300 border-purple-500/40 shadow-sm shadow-purple-900/20'
+                  : 'bg-blue-950/60 text-blue-300 border-blue-500/40'
+              }`}
+              title="点击切换量化专注模式：单标的深度加仓量化 vs 多标的池轮巡"
+            >
+              <span>{focusMode === 'SINGLE_SYMBOL' ? '🎯 单币专注' : '🌐 组合池'}</span>
+            </button>
+
+            {/* 专注标的列表 Pills */}
+            {focusSymbols.map((sym) => {
+              const isCur = activeSymbol === sym;
+              const isTradFi = isTradFiSymbol(sym);
+              const symTicker = focusTickers[sym] || (isCur ? ticker : null);
+              const chg = symTicker?.change_24h_pct;
+              const lastPx = symTicker?.last_price;
+
+              return (
+                <div
+                  key={sym}
+                  className={`group relative flex items-center space-x-1 px-2 py-0.5 rounded-lg text-[11px] font-mono transition-all border cursor-pointer ${
+                    isCur
+                      ? 'bg-trade-ai/20 text-white font-bold border-trade-ai shadow-sm shadow-trade-ai/20'
+                      : 'bg-bg-elevated/80 text-text-secondary hover:text-text-primary hover:bg-bg-elevated border-bg-border/60'
+                  }`}
+                  onClick={() => setActiveSymbol(sym)}
+                  title={`点击切换至 ${sym}`}
+                >
+                  <span>{isTradFi ? '🏛️' : '🪙'}</span>
+                  <span>{getBaseCurrency(sym)}</span>
+                  {lastPx !== undefined && (
+                    <span className="text-[10px] text-text-muted hidden xl:inline">
+                      ${formatPrice(lastPx, sym)}
+                    </span>
+                  )}
+                  {chg !== undefined && (
+                    <span
+                      className={`text-[9px] font-semibold ${
+                        chg >= 0 ? 'text-trade-up' : 'text-trade-down'
+                      }`}
+                    >
+                      {chg >= 0 ? '+' : ''}
+                      {chg.toFixed(1)}%
+                    </span>
+                  )}
+                  {focusSymbols.length > 1 && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        removeFocusSymbol(sym);
+                      }}
+                      className="opacity-0 group-hover:opacity-100 hover:text-rose-400 ml-0.5 transition-opacity"
+                      title="移出关注池"
+                    >
+                      ×
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+
+            {/* 快速添加专注标的按钮 */}
+            <button
+              onClick={() => setIsSymbolModalOpen(true)}
+              className="flex items-center justify-center w-5 h-5 rounded-lg bg-bg-elevated/60 hover:bg-trade-ai/20 hover:text-trade-ai text-text-muted border border-bg-border text-xs transition cursor-pointer"
+              title="添加更多专注标的 (TradFi / 加密资产)"
+            >
+              +
+            </button>
           </div>
 
           {/* 24h Ticker 行情滚动条 */}

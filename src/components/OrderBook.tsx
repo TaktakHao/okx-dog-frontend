@@ -14,6 +14,7 @@ import {
   getBaseCurrency,
   formatPrice,
   formatSize,
+  getSymbolDefaultPrice,
 } from '../utils/symbolHelper';
 
 export const OrderBook: React.FC = () => {
@@ -40,9 +41,10 @@ export const OrderBook: React.FC = () => {
 
     let bidCum = 0;
     let askCum = 0;
+    const step = basePrice >= 1000 ? 0.5 : basePrice >= 100 ? 0.05 : 0.0005;
 
     for (let i = 1; i <= 20; i++) {
-      const askPrice = Number((basePrice + i * 0.5).toFixed(1));
+      const askPrice = Number((basePrice + i * step).toFixed(basePrice >= 100 ? 2 : 4));
       const askSize = Number((0.2 + Math.random() * 2.8 + (i % 5 === 0 ? 4.5 : 0)).toFixed(3));
       askCum += askSize;
       asks.push({
@@ -52,7 +54,7 @@ export const OrderBook: React.FC = () => {
         order_count: Math.floor(1 + Math.random() * 8),
       });
 
-      const bidPrice = Number((basePrice - i * 0.5).toFixed(1));
+      const bidPrice = Number((basePrice - i * step).toFixed(basePrice >= 100 ? 2 : 4));
       const bidSize = Number((0.2 + Math.random() * 2.8 + (i % 5 === 0 ? 4.5 : 0)).toFixed(3));
       bidCum += bidSize;
       bids.push({
@@ -89,35 +91,29 @@ export const OrderBook: React.FC = () => {
 
   // 监听 Store 中的 WebSocket 订单簿推送
   useEffect(() => {
-    if (storeOrderBook) {
+    if (storeOrderBook && storeOrderBook.symbol === activeSymbol) {
       scheduleUpdate(storeOrderBook);
     }
-  }, [storeOrderBook]);
+  }, [storeOrderBook, activeSymbol]);
+
+  const lastPriceRef = useRef<number | undefined>(
+    ticker && ticker.symbol === activeSymbol ? ticker.last_price : undefined
+  );
+  lastPriceRef.current = ticker && ticker.symbol === activeSymbol ? ticker.last_price : undefined;
 
   // 定期拉取或初始化深度
   useEffect(() => {
     let isMounted = true;
-
-    const getSymbolDefaultPrice = (sym: string) => {
-      if (sym.includes('BTC')) return 63428.0;
-      if (sym.includes('ETH')) return 2680.0;
-      if (sym.includes('SOL')) return 188.0;
-      if (sym.includes('XAU') || sym.includes('PAXG')) return 2650.0;
-      if (sym.includes('NVDA')) return 128.5;
-      if (sym.includes('TSLA')) return 245.0;
-      if (sym.includes('EUR')) return 1.085;
-      if (sym.includes('ONDO')) return 0.725;
-      return 100.0;
-    };
+    setLocalOrderBook(null);
 
     const fetchDepth = async () => {
       try {
         const depth = await marketApi.getDepth(activeSymbol, 20);
-        if (isMounted && depth) {
+        if (isMounted && depth && depth.symbol === activeSymbol) {
           scheduleUpdate(depth);
         }
       } catch {
-        const base = ticker?.last_price || getSymbolDefaultPrice(activeSymbol);
+        const base = lastPriceRef.current || getSymbolDefaultPrice(activeSymbol);
         if (isMounted) {
           scheduleUpdate(generateFallbackDepth(base));
         }
@@ -128,11 +124,11 @@ export const OrderBook: React.FC = () => {
 
     // 维持沙盒活跃跳动 (若无真实 WS 推送)
     const timer = setInterval(() => {
-      if (!storeOrderBook) {
-        const base = ticker?.last_price || getSymbolDefaultPrice(activeSymbol);
+      if (!storeOrderBook || storeOrderBook.symbol !== activeSymbol) {
+        const base = lastPriceRef.current || getSymbolDefaultPrice(activeSymbol);
         scheduleUpdate(generateFallbackDepth(base));
       }
-    }, 1500);
+    }, 2000);
 
     return () => {
       isMounted = false;
@@ -141,22 +137,14 @@ export const OrderBook: React.FC = () => {
         cancelAnimationFrame(rafHandleRef.current);
       }
     };
-  }, [activeSymbol, storeOrderBook, ticker?.last_price]);
+  }, [activeSymbol]);
 
   // 计算买卖盘累计最大深度，用于渲染背景比例条
   const { maxDepth, asksToRender, bidsToRender, spread, spreadPct } = useMemo(() => {
-    const getSymbolDefaultPrice = (sym: string) => {
-      if (sym.includes('BTC')) return 63428.0;
-      if (sym.includes('ETH')) return 2680.0;
-      if (sym.includes('SOL')) return 188.0;
-      if (sym.includes('XAU') || sym.includes('PAXG')) return 2650.0;
-      if (sym.includes('NVDA')) return 128.5;
-      if (sym.includes('TSLA')) return 245.0;
-      if (sym.includes('EUR')) return 1.085;
-      if (sym.includes('ONDO')) return 0.725;
-      return 100.0;
-    };
-    const current = localOrderBook || generateFallbackDepth(ticker?.last_price || getSymbolDefaultPrice(activeSymbol));
+    const activePrice = ticker && ticker.symbol === activeSymbol ? ticker.last_price : undefined;
+    const current =
+      (localOrderBook && localOrderBook.symbol === activeSymbol ? localOrderBook : null) ||
+      generateFallbackDepth(activePrice || getSymbolDefaultPrice(activeSymbol));
 
 
     const limit = viewMode === 'both' ? 12 : 20;

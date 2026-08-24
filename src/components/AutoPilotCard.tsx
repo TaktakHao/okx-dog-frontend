@@ -18,6 +18,7 @@ import {
   Award,
   Clock,
   AlertTriangle,
+  ShieldAlert,
   ShieldCheck,
   Plus,
   X,
@@ -35,6 +36,17 @@ export const AutoPilotCard: React.FC = () => {
     balance,
     isLiveMode,
     riskStatus,
+    positions,
+    focusSymbols,
+    focusMode,
+    setFocusMode,
+    setFocusSymbols,
+    maxScaleLayers: storeMaxScaleLayers,
+    setMaxScaleLayers: setStoreMaxScaleLayers,
+    scaleInStrategy: storeScaleInStrategy,
+    setScaleInStrategy: setStoreScaleInStrategy,
+    autoReversalEnabled: storeAutoReversal,
+    setAutoReversalEnabled: setStoreAutoReversal,
     autoPilotStatus,
     setAutoPilotStatus,
     autoPilotHistory,
@@ -50,24 +62,30 @@ export const AutoPilotCard: React.FC = () => {
   // 配置项
   const [minConfidence, setMinConfidence] = useState<number>(0.70);
   const [autoLeverage, setAutoLeverage] = useState<boolean>(true);
-  const [symbolsPool, setSymbolsPool] = useState<string[]>([
-    'XAU-USDT-SWAP',
-    'NVDA-USDT-SWAP',
-    'TSLA-USDT-SWAP',
-    'ONDO-USDT-SWAP',
-    'BTC-USDT-SWAP',
-    'ETH-USDT-SWAP',
-  ]);
+  const [selectedFocusMode, setSelectedFocusMode] = useState<'SINGLE_SYMBOL' | 'MULTI_SYMBOL_POOL'>(focusMode);
+  const [maxScaleLayers, setMaxScaleLayers] = useState<number>(storeMaxScaleLayers || 3);
+  const [scaleInStrategy, setScaleInStrategy] = useState<'PYRAMIDING' | 'PULLBACK_DCA' | 'SMART_HYBRID'>(storeScaleInStrategy || 'SMART_HYBRID');
+  const [autoReversalEnabled, setAutoReversalEnabled] = useState<boolean>(storeAutoReversal ?? true);
+  const [symbolsPool, setSymbolsPool] = useState<string[]>(focusSymbols);
   const [maxConcurrentPositions, setMaxConcurrentPositions] = useState<number>(3);
   const [trailingStopEnabled, setTrailingStopEnabled] = useState<boolean>(true);
   const [newSymbolInput, setNewSymbolInput] = useState<string>('');
 
+  // 🛡️ 最低本金止损底线与最大允许亏损额 (Capital Preservation Floor)
+  const [stopLossEquityFloor, setStopLossEquityFloor] = useState<number | ''>('');
+  const [maxLossLimitUsdt, setMaxLossLimitUsdt] = useState<number | ''>('');
+
   // 动态秒级运行时长
   const [elapsedSeconds, setElapsedSeconds] = useState<number>(0);
+  const isConfigOpenRef = React.useRef(isConfigOpen);
+  isConfigOpenRef.current = isConfigOpen;
+  const isInitialLoadedRef = React.useRef(false);
 
-  // 1. 初始化拉取自动操盘状态与历史曲线
+  // 1. 初始化与模式切换时拉取对应环境的自动操盘状态与历史曲线
   useEffect(() => {
     let isMounted = true;
+    isInitialLoadedRef.current = false;
+
     const fetchStatusAndHistory = async () => {
       try {
         const [statusData, historyData] = await Promise.allSettled([
@@ -79,16 +97,43 @@ export const AutoPilotCard: React.FC = () => {
         if (statusData.status === 'fulfilled' && statusData.value) {
           setAutoPilotStatus(statusData.value);
           setIsRunning(statusData.value.is_running);
-          setMinConfidence(statusData.value.min_confidence || 0.70);
-          setAutoLeverage(statusData.value.auto_leverage_enabled ?? true);
-          if (statusData.value.symbols && statusData.value.symbols.length > 0) {
-            setSymbolsPool(statusData.value.symbols);
-          }
-          if (statusData.value.max_concurrent_positions) {
-            setMaxConcurrentPositions(statusData.value.max_concurrent_positions);
-          }
-          if (statusData.value.trailing_stop_enabled !== undefined) {
-            setTrailingStopEnabled(statusData.value.trailing_stop_enabled);
+
+          // 仅在初次加载或配置抽屉未打开时同步到本地表单，防止覆盖用户正在输入的修改
+          if (!isInitialLoadedRef.current || !isConfigOpenRef.current) {
+            setMinConfidence(statusData.value.min_confidence || 0.70);
+            setAutoLeverage(statusData.value.auto_leverage_enabled ?? true);
+            if (statusData.value.focus_mode) {
+              setSelectedFocusMode(statusData.value.focus_mode as any);
+            }
+            if (statusData.value.max_scale_layers) {
+              setMaxScaleLayers(statusData.value.max_scale_layers);
+            }
+            if (statusData.value.scale_in_strategy) {
+              setScaleInStrategy(statusData.value.scale_in_strategy as any);
+            }
+            if (statusData.value.auto_reversal_enabled !== undefined) {
+              setAutoReversalEnabled(statusData.value.auto_reversal_enabled);
+            }
+            if (statusData.value.focus_symbols && statusData.value.focus_symbols.length > 0) {
+              setSymbolsPool(statusData.value.focus_symbols);
+            }
+            if (statusData.value.max_concurrent_positions) {
+              setMaxConcurrentPositions(statusData.value.max_concurrent_positions);
+            }
+            if (statusData.value.trailing_stop_enabled !== undefined) {
+              setTrailingStopEnabled(statusData.value.trailing_stop_enabled);
+            }
+            if (statusData.value.stop_loss_equity_floor !== undefined && statusData.value.stop_loss_equity_floor !== null) {
+              setStopLossEquityFloor(statusData.value.stop_loss_equity_floor);
+            } else {
+              setStopLossEquityFloor('');
+            }
+            if (statusData.value.max_loss_limit_usdt !== undefined && statusData.value.max_loss_limit_usdt !== null) {
+              setMaxLossLimitUsdt(statusData.value.max_loss_limit_usdt);
+            } else {
+              setMaxLossLimitUsdt('');
+            }
+            isInitialLoadedRef.current = true;
           }
         }
         if (historyData.status === 'fulfilled' && historyData.value) {
@@ -107,7 +152,7 @@ export const AutoPilotCard: React.FC = () => {
       isMounted = false;
       clearInterval(interval);
     };
-  }, [setAutoPilotStatus, setAutoPilotHistory]);
+  }, [isLiveMode, setAutoPilotStatus, setAutoPilotHistory]);
 
   // 2. 动态计时器：更新累计运行时长
   useEffect(() => {
@@ -147,13 +192,22 @@ export const AutoPilotCard: React.FC = () => {
         setIsRunning(false);
         setAutoPilotStatus(res);
       } else {
+        const parsedFloor = typeof stopLossEquityFloor === 'number' && stopLossEquityFloor > 0 ? stopLossEquityFloor : undefined;
+        const parsedMaxLoss = typeof maxLossLimitUsdt === 'number' && maxLossLimitUsdt > 0 ? maxLossLimitUsdt : undefined;
         const res = await autoPilotApi.start({
           min_confidence: minConfidence,
           auto_leverage_enabled: autoLeverage,
           symbol: activeSymbol,
           symbols: symbolsPool,
+          focus_symbols: symbolsPool,
+          focus_mode: selectedFocusMode,
+          max_scale_layers: maxScaleLayers,
+          scale_in_strategy: scaleInStrategy,
+          auto_reversal_enabled: autoReversalEnabled,
           max_concurrent_positions: maxConcurrentPositions,
           trailing_stop_enabled: trailingStopEnabled,
+          stop_loss_equity_floor: parsedFloor,
+          max_loss_limit_usdt: parsedMaxLoss,
         });
         setIsRunning(true);
         setAutoPilotStatus(res);
@@ -187,14 +241,29 @@ export const AutoPilotCard: React.FC = () => {
   // 保存策略配置
   const handleSaveConfig = async () => {
     try {
+      const parsedFloor = typeof stopLossEquityFloor === 'number' && stopLossEquityFloor > 0 ? stopLossEquityFloor : undefined;
+      const parsedMaxLoss = typeof maxLossLimitUsdt === 'number' && maxLossLimitUsdt > 0 ? maxLossLimitUsdt : undefined;
       const res = await autoPilotApi.updateConfig({
         min_confidence: minConfidence,
         auto_leverage_enabled: autoLeverage,
+        symbol: activeSymbol,
         symbols: symbolsPool,
+        focus_symbols: symbolsPool,
+        focus_mode: selectedFocusMode,
+        max_scale_layers: maxScaleLayers,
+        scale_in_strategy: scaleInStrategy,
+        auto_reversal_enabled: autoReversalEnabled,
         max_concurrent_positions: maxConcurrentPositions,
         trailing_stop_enabled: trailingStopEnabled,
+        stop_loss_equity_floor: parsedFloor,
+        max_loss_limit_usdt: parsedMaxLoss,
       });
       setAutoPilotStatus(res);
+      setFocusMode(selectedFocusMode);
+      setFocusSymbols(symbolsPool);
+      setStoreMaxScaleLayers(maxScaleLayers);
+      setStoreScaleInStrategy(scaleInStrategy);
+      setStoreAutoReversal(autoReversalEnabled);
       setIsConfigOpen(false);
     } catch (err) {
       console.warn('保存自动操盘配置异常:', err);
@@ -207,19 +276,63 @@ export const AutoPilotCard: React.FC = () => {
     if (!s) return;
     const formatted = s.endsWith('-USDT-SWAP') ? s : `${s.replace('-USDT', '')}-USDT-SWAP`;
     if (!symbolsPool.includes(formatted)) {
-      setSymbolsPool([...symbolsPool, formatted]);
+      const next = [...symbolsPool, formatted];
+      setSymbolsPool(next);
+      setFocusSymbols(next);
     }
     setNewSymbolInput('');
   };
 
   const handleRemoveSymbol = (sym: string) => {
-    setSymbolsPool(symbolsPool.filter((s) => s !== sym));
+    const next = symbolsPool.filter((s) => s !== sym);
+    setSymbolsPool(next);
+    setFocusSymbols(next);
   };
 
   // 计算显示指标
   const totalEquity = balance?.total_equity_usdt ?? (isLiveMode ? 0 : 10000);
   const startEquity = autoPilotStatus?.start_equity_usdt ?? 10000;
   const currentEquity = autoPilotStatus?.current_equity_usdt ?? totalEquity;
+
+  // 🛡️ 最低本金底线与最大允许亏损额联动计算
+  const handleFloorChange = (valStr: string) => {
+    if (valStr === '') {
+      setStopLossEquityFloor('');
+      setMaxLossLimitUsdt('');
+      return;
+    }
+    const val = parseFloat(valStr);
+    if (!isNaN(val)) {
+      setStopLossEquityFloor(val);
+      const loss = Math.max(0, currentEquity - val);
+      setMaxLossLimitUsdt(Number(loss.toFixed(2)));
+    }
+  };
+
+  const handleMaxLossChange = (valStr: string) => {
+    if (valStr === '') {
+      setMaxLossLimitUsdt('');
+      setStopLossEquityFloor('');
+      return;
+    }
+    const val = parseFloat(valStr);
+    if (!isNaN(val)) {
+      setMaxLossLimitUsdt(val);
+      const floor = Math.max(0, currentEquity - val);
+      setStopLossEquityFloor(Number(floor.toFixed(2)));
+    }
+  };
+
+  const handleQuickSetMaxLoss = (lossAmount: number) => {
+    const floor = Math.max(0, currentEquity - lossAmount);
+    setMaxLossLimitUsdt(Number(lossAmount.toFixed(2)));
+    setStopLossEquityFloor(Number(floor.toFixed(2)));
+  };
+
+  const handleClearFloorProtection = () => {
+    setStopLossEquityFloor('');
+    setMaxLossLimitUsdt('');
+  };
 
   const totalPnl = currentEquity - startEquity;
   const totalPnlRatio = startEquity > 0 ? (totalPnl / startEquity) * 100 : 0;
@@ -234,42 +347,61 @@ export const AutoPilotCard: React.FC = () => {
   const profitFactor = autoPilotStatus?.profit_factor ?? (winTrades > 0 ? 2.5 : 0);
   const maxDrawdown = autoPilotStatus?.max_drawdown_pct ?? 0;
 
-  // 渲染时序收益曲线 (SVG 平滑曲线绘制)
+  // 渲染时序收益曲线 (SVG 平滑曲线绘制与时间轴映射)
   const curvePoints = autoPilotHistory?.curve || [];
   const svgChart = useMemo(() => {
     if (curvePoints.length < 2) {
       return null;
     }
-    const width = 280;
-    const height = 70;
-    const padding = 6;
+    const width = 300;
+    const height = 80;
+    const paddingX = 8;
+    const paddingY = 8;
 
     const values = curvePoints.map((p: AutoPilotHistoryPoint) => p.total_pnl);
-    const minVal = Math.min(...values);
-    const maxVal = Math.max(...values);
-    const range = maxVal - minVal === 0 ? 1 : maxVal - minVal;
+    const rawMin = Math.min(...values);
+    const rawMax = Math.max(...values);
+
+    // 动态对齐基准 0 轴
+    const minVal = Math.min(rawMin, -1.0);
+    const maxVal = Math.max(rawMax, 1.0);
+    const range = (maxVal - minVal) === 0 ? 10 : (maxVal - minVal);
+
+    const zeroY = height - paddingY - ((0 - minVal) / range) * (height - paddingY * 2);
 
     const points = curvePoints.map((p: AutoPilotHistoryPoint, i: number) => {
-      const x = padding + (i / (curvePoints.length - 1)) * (width - padding * 2);
-      const y = height - padding - ((p.total_pnl - minVal) / range) * (height - padding * 2);
+      const x = paddingX + (i / (curvePoints.length - 1)) * (width - paddingX * 2);
+      const y = height - paddingY - ((p.total_pnl - minVal) / range) * (height - paddingY * 2);
       return `${x.toFixed(1)},${y.toFixed(1)}`;
     });
 
     const linePath = `M ${points.join(' L ')}`;
-    const areaPath = `M ${points[0]} L ${points.join(' L ')} L ${width - padding},${height} L ${padding},${height} Z`;
+    const areaPath = `M ${points[0]} L ${points.join(' L ')} L ${width - paddingX},${height} L ${paddingX},${height} Z`;
 
     const isCurrentProfit = values[values.length - 1] >= 0;
     const strokeColor = isCurrentProfit ? '#00C087' : '#FF3B69';
-    const fillColor = isCurrentProfit ? 'rgba(0, 192, 135, 0.15)' : 'rgba(255, 59, 105, 0.15)';
+    const fillColor = isCurrentProfit ? 'rgba(0, 192, 135, 0.18)' : 'rgba(255, 59, 105, 0.18)';
+
+    const startTs = curvePoints[0].timestamp;
+    const endTs = curvePoints[curvePoints.length - 1].timestamp;
+
+    const formatTs = (ts: number) => {
+      const d = new Date(ts);
+      return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    };
 
     return {
       linePath,
       areaPath,
       strokeColor,
       fillColor,
+      zeroY,
       lastPoint: points[points.length - 1].split(','),
-      minVal,
-      maxVal,
+      minVal: rawMin,
+      maxVal: rawMax,
+      startStr: formatTs(startTs),
+      endStr: formatTs(endTs),
+      samplesCount: curvePoints.length,
     };
   }, [curvePoints]);
 
@@ -289,6 +421,9 @@ export const AutoPilotCard: React.FC = () => {
           <div>
             <div className="flex items-center space-x-1.5">
               <span className="text-xs font-bold text-text-primary">7x24h 脱机量化操盘</span>
+              <span className={`text-[9px] px-1 py-0.2 rounded font-mono font-medium ${isLiveMode ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30' : 'bg-blue-500/20 text-blue-400 border border-blue-500/30'}`}>
+                {isLiveMode ? '实盘' : '模拟'}
+              </span>
               <span className={`flex items-center px-1.5 py-0.2 rounded text-[10px] font-mono font-medium ${
                 isRunning ? 'bg-trade-up/20 text-trade-up' : 'bg-bg-elevated text-text-muted'
               }`}>
@@ -348,18 +483,52 @@ export const AutoPilotCard: React.FC = () => {
         </div>
       </div>
 
-      {/* 2. 多标的轮巡池与移动保本状态指示条 */}
+      {/* 2. 专注模式与加仓状态指示条 */}
       <div className="p-2 rounded-lg bg-bg-elevated/60 border border-bg-border space-y-1.5 text-xs">
         <div className="flex items-center justify-between text-[11px] text-text-muted font-medium">
-          <span className="flex items-center space-x-1 text-trade-ai">
+          <span className="flex items-center space-x-1 text-trade-ai font-bold">
             <Layers className="w-3.5 h-3.5" />
-            <span>自动监控池 ({symbolsPool.length} 个标的, 限持 {maxConcurrentPositions} 仓)</span>
+            <span>
+              {selectedFocusMode === 'SINGLE_SYMBOL'
+                ? `🎯 单币专注量化 (${getBaseCurrency(activeSymbol)})`
+                : `🌐 组合池轮巡 (${symbolsPool.length}标的, 限持${maxConcurrentPositions}仓)`}
+            </span>
           </span>
-          <span className="flex items-center space-x-1 text-emerald-400 text-[10px] font-mono">
-            <ShieldCheck className="w-3 h-3" />
-            <span>{trailingStopEnabled ? '移动保本开启' : '固定止损'}</span>
-          </span>
+          <div className="flex items-center space-x-1.5">
+            {autoPilotStatus?.stop_loss_equity_floor ? (
+              <span className="flex items-center space-x-1 text-amber-400 text-[10px] font-mono px-1.5 py-0.5 rounded bg-amber-500/10 border border-amber-500/30">
+                <ShieldAlert className="w-3 h-3 text-amber-400" />
+                <span>保本底线: ${autoPilotStatus.stop_loss_equity_floor.toFixed(0)}</span>
+              </span>
+            ) : null}
+            <span className="flex items-center space-x-1 text-emerald-400 text-[10px] font-mono">
+              <ShieldCheck className="w-3 h-3" />
+              <span>{trailingStopEnabled ? '移动保本已锁' : '固定止损'}</span>
+            </span>
+          </div>
         </div>
+
+        {/* 当前持仓加仓层数徽章 (如果当前标的有持仓) */}
+        {(() => {
+          const curPos = positions.find((p) => p.symbol === activeSymbol && (p.pos ?? 0) > 0);
+          if (curPos) {
+            const layers = curPos.scale_layers || 1;
+            return (
+              <div className="flex items-center justify-between px-2 py-1 rounded bg-trade-ai/10 border border-trade-ai/30 text-[11px]">
+                <div className="flex items-center space-x-1.5">
+                  <span className="font-bold text-trade-ai">当前持仓加仓状态:</span>
+                  <span className="px-1.5 py-0.2 rounded bg-trade-ai text-white font-mono font-bold text-[10px]">
+                    第 {layers}/{maxScaleLayers} 层
+                  </span>
+                </div>
+                <span className="text-[10px] text-text-muted font-mono">
+                  {scaleInStrategy === 'SMART_HYBRID' ? '智能混合加仓' : scaleInStrategy === 'PYRAMIDING' ? '金字塔顺势加仓' : '回调均摊补仓'}
+                </span>
+              </div>
+            );
+          }
+          return null;
+        })()}
 
         {/* 标的标签列表 */}
         <div className="flex flex-wrap gap-1">
@@ -491,24 +660,40 @@ export const AutoPilotCard: React.FC = () => {
           {activeTab === 'chart' ? (
             <div className="h-full flex flex-col justify-between">
               {svgChart ? (
-                <div className="w-full flex-1 flex items-center justify-center relative">
-                  <svg className="w-full h-full overflow-visible" viewBox="0 0 280 70" preserveAspectRatio="none">
-                    <defs>
-                      <linearGradient id="pnlGrad" x1="0%" y1="0%" x2="0%" y2="100%">
-                        <stop offset="0%" stopColor={svgChart.strokeColor} stopOpacity="0.35" />
-                        <stop offset="100%" stopColor={svgChart.strokeColor} stopOpacity="0.0" />
-                      </linearGradient>
-                    </defs>
-                    {/* 0轴基准线 */}
-                    <line x1="6" y1="35" x2="274" y2="35" stroke="rgba(255,255,255,0.08)" strokeDasharray="2,2" />
-                    {/* 渐变填充 */}
-                    <path d={svgChart.areaPath} fill="url(#pnlGrad)" />
-                    {/* 曲线 */}
-                    <path d={svgChart.linePath} fill="none" stroke={svgChart.strokeColor} strokeWidth="2" strokeLinecap="round" />
-                    {/* 最新采样点光晕 */}
-                    <circle cx={svgChart.lastPoint[0]} cy={svgChart.lastPoint[1]} r="3" fill={svgChart.strokeColor} className="animate-ping opacity-75" />
-                    <circle cx={svgChart.lastPoint[0]} cy={svgChart.lastPoint[1]} r="3" fill="#fff" />
-                  </svg>
+                <div className="w-full flex-1 flex flex-col justify-between relative">
+                  <div className="w-full h-[72px] flex items-center justify-center relative">
+                    <svg className="w-full h-full overflow-visible" viewBox="0 0 300 80" preserveAspectRatio="none">
+                      <defs>
+                        <linearGradient id="pnlGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+                          <stop offset="0%" stopColor={svgChart.strokeColor} stopOpacity="0.35" />
+                          <stop offset="100%" stopColor={svgChart.strokeColor} stopOpacity="0.0" />
+                        </linearGradient>
+                      </defs>
+                      {/* 0轴基准线 */}
+                      <line x1="8" y1={svgChart.zeroY} x2="292" y2={svgChart.zeroY} stroke="rgba(255,255,255,0.15)" strokeDasharray="3,3" />
+                      {/* 渐变填充 */}
+                      <path d={svgChart.areaPath} fill="url(#pnlGrad)" />
+                      {/* 曲线 */}
+                      <path d={svgChart.linePath} fill="none" stroke={svgChart.strokeColor} strokeWidth="2" strokeLinecap="round" />
+                      {/* 最新采样点光晕 */}
+                      <circle cx={svgChart.lastPoint[0]} cy={svgChart.lastPoint[1]} r="3" fill={svgChart.strokeColor} className="animate-ping opacity-75" />
+                      <circle cx={svgChart.lastPoint[0]} cy={svgChart.lastPoint[1]} r="3" fill="#fff" />
+                    </svg>
+                  </div>
+
+                  <div className="flex items-center justify-between text-[9px] text-text-muted font-mono pt-1 border-t border-bg-border/40">
+                    <span className="flex items-center space-x-1">
+                      <span>起始:</span>
+                      <span className="text-text-secondary">{svgChart.startStr}</span>
+                    </span>
+                    <span className="text-text-muted">({svgChart.samplesCount}个时序采样点)</span>
+                    <span className="flex items-center space-x-1">
+                      <span>当前:</span>
+                      <span className={isProfitPositive ? 'text-trade-up font-bold' : 'text-trade-down font-bold'}>
+                        {isProfitPositive ? '+' : ''}${totalPnl.toFixed(2)} ({svgChart.endStr})
+                      </span>
+                    </span>
+                  </div>
                 </div>
               ) : (
                 <div className="h-full flex flex-col items-center justify-center text-text-muted text-[11px] space-y-1">
@@ -516,18 +701,11 @@ export const AutoPilotCard: React.FC = () => {
                   <span>7x24h 操盘中枢常驻运行中，正在采集收益走势...</span>
                 </div>
               )}
-
-              <div className="flex items-center justify-between text-[9px] text-text-muted font-mono pt-1 border-t border-bg-border/30">
-                <span>开启基准点</span>
-                <span className={isProfitPositive ? 'text-trade-up font-bold' : 'text-trade-down font-bold'}>
-                  当前: {isProfitPositive ? '+' : ''}${totalPnl.toFixed(2)}
-                </span>
-              </div>
             </div>
           ) : (
             <div className="space-y-1.5">
               {autoPilotHistory?.trades && autoPilotHistory.trades.length > 0 ? (
-                autoPilotHistory.trades.slice(0, 10).map((t: AutoPilotTradeRecord, idx: number) => (
+                autoPilotHistory.trades.slice(0, 15).map((t: AutoPilotTradeRecord, idx: number) => (
                   <div
                     key={t.id || idx}
                     className="p-1.5 rounded bg-bg-secondary border border-bg-border/50 flex items-center justify-between text-[11px] font-mono-num"
@@ -536,7 +714,7 @@ export const AutoPilotCard: React.FC = () => {
                       <span className={`px-1 py-0.2 rounded text-[9px] font-bold ${
                         t.pos_side === 'long' ? 'bg-trade-up/20 text-trade-up' : 'bg-trade-down/20 text-trade-down'
                       }`}>
-                        {t.pos_side === 'long' ? '多' : '空'} {t.leverage}x
+                        {t.pos_side === 'long' ? '做多' : '做空'} {t.leverage}x
                       </span>
                       <div className="text-text-primary text-[10px]">
                         <span className="font-bold mr-1">{getBaseCurrency(t.symbol)}</span>
@@ -547,8 +725,10 @@ export const AutoPilotCard: React.FC = () => {
                       <div className={`font-bold ${t.realized_pnl >= 0 ? 'text-trade-up' : 'text-trade-down'}`}>
                         {t.realized_pnl >= 0 ? '+' : ''}${t.realized_pnl.toFixed(2)} ({t.roi_pct >= 0 ? '+' : ''}{t.roi_pct.toFixed(1)}%)
                       </div>
-                      <div className="text-[9px] text-text-muted truncate max-w-[110px]" title={t.reason}>
-                        {t.reason}
+                      <div className="text-[9px] text-text-muted flex items-center justify-end space-x-1">
+                        <span className="truncate max-w-[90px]" title={t.reason}>{t.reason}</span>
+                        <span>•</span>
+                        <span>{new Date(t.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
                       </div>
                     </div>
                   </div>
@@ -582,10 +762,114 @@ export const AutoPilotCard: React.FC = () => {
             </div>
 
             <div className="space-y-3.5 text-xs">
-              {/* 多标的轮巡池配置 */}
+              {/* 模式选择：单币专注 vs 组合池 */}
               <div className="space-y-1.5">
+                <div className="text-text-secondary font-medium">量化操盘工作模式</div>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedFocusMode('SINGLE_SYMBOL')}
+                    className={`p-2 rounded-lg border text-left transition-all cursor-pointer ${
+                      selectedFocusMode === 'SINGLE_SYMBOL'
+                        ? 'bg-purple-950/40 border-purple-500 text-purple-200 shadow-sm'
+                        : 'bg-bg-primary border-bg-border text-text-muted hover:text-text-primary'
+                    }`}
+                  >
+                    <div className="font-bold flex items-center space-x-1">
+                      <span>🎯 单标的专注量化</span>
+                    </div>
+                    <div className="text-[10px] text-text-muted mt-1 leading-tight">
+                      专注当前标的，持续动态顺势加仓/补仓与反转平反开
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setSelectedFocusMode('MULTI_SYMBOL_POOL')}
+                    className={`p-2 rounded-lg border text-left transition-all cursor-pointer ${
+                      selectedFocusMode === 'MULTI_SYMBOL_POOL'
+                        ? 'bg-blue-950/40 border-blue-500 text-blue-200 shadow-sm'
+                        : 'bg-bg-primary border-bg-border text-text-muted hover:text-text-primary'
+                    }`}
+                  >
+                    <div className="font-bold flex items-center space-x-1">
+                      <span>🌐 多标的组合轮巡</span>
+                    </div>
+                    <div className="text-[10px] text-text-muted mt-1 leading-tight">
+                      跨 Crypto & TradFi 轮巡扫描，多标的并发分散配置
+                    </div>
+                  </button>
+                </div>
+              </div>
+
+              {/* 最大加仓层数 */}
+              <div className="space-y-1.5 pt-2 border-t border-bg-border/60">
+                <div className="flex justify-between text-text-secondary">
+                  <span>单标的最大加仓层数 (Max Scale Layers)</span>
+                  <span className="text-trade-ai font-bold font-mono">{maxScaleLayers} 层</span>
+                </div>
+                <div className="flex space-x-1.5">
+                  {[1, 2, 3, 4, 5].map((num) => (
+                    <button
+                      key={num}
+                      type="button"
+                      onClick={() => setMaxScaleLayers(num)}
+                      className={`flex-1 py-1 rounded text-xs font-mono font-bold border transition-colors cursor-pointer ${
+                        maxScaleLayers === num
+                          ? 'bg-trade-ai text-white border-trade-ai'
+                          : 'bg-bg-primary text-text-muted border-bg-border hover:text-text-primary'
+                      }`}
+                    >
+                      {num === 1 ? '1层(无加仓)' : `${num}层`}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* 加仓策略模式 */}
+              <div className="space-y-1.5 pt-2 border-t border-bg-border/60">
+                <div className="text-text-secondary font-medium">智能加仓算法策略</div>
+                <div className="grid grid-cols-3 gap-1.5">
+                  {[
+                    { id: 'SMART_HYBRID', label: '智能混合', desc: '金字塔+回踩' },
+                    { id: 'PYRAMIDING', label: '顺势金字塔', desc: '浮盈顺势追击' },
+                    { id: 'PULLBACK_DCA', label: '动态回踩补仓', desc: '逢低支撑均摊' },
+                  ].map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => setScaleInStrategy(item.id as any)}
+                      className={`p-1.5 rounded border text-center transition-colors cursor-pointer ${
+                        scaleInStrategy === item.id
+                          ? 'bg-trade-ai text-white border-trade-ai font-bold'
+                          : 'bg-bg-primary text-text-muted border-bg-border hover:text-text-primary'
+                      }`}
+                    >
+                      <div className="text-[11px]">{item.label}</div>
+                      <div className="text-[9px] opacity-80">{item.desc}</div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* 自动趋势反转反手 */}
+              <div className="flex items-center justify-between pt-2 border-t border-bg-border/60">
+                <div>
+                  <span className="text-text-primary font-medium block">趋势强反向自动反手 (Auto Reversal)</span>
+                  <span className="text-[10px] text-text-muted">当遭遇强反向 AI 信号 (置信度 ≥ 75%) 时，自动平仓并反向开仓</span>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={autoReversalEnabled}
+                  onChange={(e) => setAutoReversalEnabled(e.target.checked)}
+                  className="w-4 h-4 accent-trade-ai cursor-pointer"
+                />
+              </div>
+
+              {/* 多标的轮巡池配置 */}
+              <div className="space-y-1.5 pt-2 border-t border-bg-border/60">
                 <div className="flex items-center justify-between text-text-secondary">
-                  <span className="font-medium">自动监控轮巡标的池 ({symbolsPool.length} 个)</span>
+                  <span className="font-medium">自动关注与轮巡标的池 ({symbolsPool.length} 个)</span>
                   <button
                     type="button"
                     onClick={() => handleAddSymbol(activeSymbol)}
@@ -658,6 +942,99 @@ export const AutoPilotCard: React.FC = () => {
                     </button>
                   ))}
                 </div>
+              </div>
+
+              {/* 🛡️ 本金止损底线与最大允许亏损额配置 (Capital Preservation Floor) */}
+              <div className="space-y-2 pt-2 border-t border-amber-500/30 bg-amber-500/5 p-2.5 rounded-lg border">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-1.5 text-amber-400 font-bold text-xs">
+                    <ShieldAlert className="w-4 h-4" />
+                    <span>本金止损底线保护 (Capital Stop Floor)</span>
+                  </div>
+                  {typeof stopLossEquityFloor === 'number' && stopLossEquityFloor > 0 ? (
+                    <span className="px-1.5 py-0.2 rounded text-[10px] font-mono bg-amber-500/20 text-amber-300 font-bold">
+                      保护生效中
+                    </span>
+                  ) : (
+                    <span className="text-[10px] text-text-muted">未设底线 (全额浮动)</span>
+                  )}
+                </div>
+                <p className="text-[10px] text-text-muted leading-relaxed">
+                  设定操盘最低保留资金。当账户总权益跌破此底线时，系统将<strong className="text-amber-300">自动停止操盘并熔断</strong>，坚决守护核心本金。
+                </p>
+
+                {/* 资金底线与最大亏损输入行 */}
+                <div className="grid grid-cols-2 gap-2 pt-1">
+                  <div>
+                    <label className="text-[10px] text-text-secondary block mb-1">最低保留底线 (USDT)</label>
+                    <div className="relative">
+                      <input
+                        type="number"
+                        placeholder={`如: ${(currentEquity > 1000 ? currentEquity - 1000 : currentEquity * 0.85).toFixed(0)}`}
+                        value={stopLossEquityFloor}
+                        onChange={(e) => handleFloorChange(e.target.value)}
+                        className="w-full px-2.5 py-1.5 rounded bg-bg-primary border border-bg-border text-text-primary text-xs font-mono font-bold focus:border-amber-400 focus:outline-none"
+                      />
+                      <span className="absolute right-2 top-1.5 text-[10px] text-text-muted font-mono">U</span>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-text-secondary block mb-1">最大允许亏损 (USDT)</label>
+                    <div className="relative">
+                      <input
+                        type="number"
+                        placeholder="如: 1000"
+                        value={maxLossLimitUsdt}
+                        onChange={(e) => handleMaxLossChange(e.target.value)}
+                        className="w-full px-2.5 py-1.5 rounded bg-bg-primary border border-bg-border text-text-primary text-xs font-mono font-bold focus:border-amber-400 focus:outline-none"
+                      />
+                      <span className="absolute right-2 top-1.5 text-[10px] text-text-muted font-mono">U</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 快捷预设按钮组 */}
+                <div className="flex flex-wrap gap-1 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => handleQuickSetMaxLoss(500)}
+                    className="px-2 py-0.5 rounded text-[10px] font-mono bg-bg-elevated hover:bg-bg-border text-text-secondary border border-bg-border cursor-pointer transition-colors"
+                  >
+                    亏损-500U
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleQuickSetMaxLoss(1000)}
+                    className="px-2 py-0.5 rounded text-[10px] font-mono bg-bg-elevated hover:bg-bg-border text-text-secondary border border-bg-border cursor-pointer transition-colors"
+                  >
+                    亏损-1,000U
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleQuickSetMaxLoss(currentEquity * 0.15)}
+                    className="px-2 py-0.5 rounded text-[10px] font-mono bg-bg-elevated hover:bg-bg-border text-text-secondary border border-bg-border cursor-pointer transition-colors"
+                  >
+                    亏损-15% (约-${(currentEquity * 0.15).toFixed(0)}U)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleClearFloorProtection}
+                    className="px-2 py-0.5 rounded text-[10px] font-mono bg-bg-elevated hover:bg-bg-border text-text-muted hover:text-trade-down border border-bg-border cursor-pointer transition-colors ml-auto"
+                  >
+                    清除保护
+                  </button>
+                </div>
+
+                {/* 实时提示信息条 */}
+                {typeof stopLossEquityFloor === 'number' && stopLossEquityFloor > 0 ? (
+                  <div className="p-1.5 rounded bg-amber-500/10 border border-amber-500/20 text-[10px] text-amber-300 font-mono flex items-center justify-between">
+                    <span>当前本金: ${currentEquity.toFixed(2)}</span>
+                    <span>→ 触发底线: ${stopLossEquityFloor.toFixed(2)}</span>
+                    <span className="text-amber-400 font-bold">
+                      (最大回撤 -${(typeof maxLossLimitUsdt === 'number' ? maxLossLimitUsdt : (currentEquity - stopLossEquityFloor)).toFixed(2)}U)
+                    </span>
+                  </div>
+                ) : null}
               </div>
 
               {/* 移动保本设置 */}

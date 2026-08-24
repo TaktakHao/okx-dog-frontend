@@ -206,7 +206,6 @@ export const marketApi = {
       `/market/indicators?symbol=${encodeURIComponent(symbol)}`
     );
   },
-
   /**
    * 获取标的池列表与搜索
    */
@@ -216,6 +215,16 @@ export const marketApi = {
     if (category) params.append('category', category);
     const queryStr = params.toString() ? `?${params.toString()}` : '';
     return request<SymbolListResponse>(`/market/symbols${queryStr}`);
+  },
+
+  /**
+   * 批量订阅前端自选与专注标的行情通道
+   */
+  subscribeFocus: (symbols: string[]): Promise<{ subscribed_symbols: string[] }> => {
+    return request<{ subscribed_symbols: string[] }>('/market/subscribe-focus', {
+      method: 'POST',
+      body: JSON.stringify(symbols),
+    });
   },
 };
 

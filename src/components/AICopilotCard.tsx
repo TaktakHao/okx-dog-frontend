@@ -208,6 +208,8 @@ export const AICopilotCard: React.FC = () => {
       }
     } catch (err) {
       console.warn('[AI] 触发研判异常:', err);
+      // 失败退避惩罚：推迟下一次自动触发时间 45 秒，杜绝请求雪崩
+      lastAnalysisTimeRef.current = Date.now() + 45000;
     } finally {
       setIsAiAnalyzing(false);
       isTriggeringRef.current = false;
@@ -224,45 +226,47 @@ export const AICopilotCard: React.FC = () => {
     triggerAnalysisWithReason('交易员手动触发', true);
   };
 
-
-
-  // 1. 事件驱动触发：市价突破 / 偏离阈值自动重新生成
+  // 0. 当标的切换时，重置上次研判基准价格与冷却时间
   useEffect(() => {
-    if (!isAutoPilotEnabled || !ticker?.last_price || isTriggeringRef.current) return;
+    lastAnalyzedPriceRef.current = ticker && ticker.symbol === activeSymbol ? ticker.last_price : 0;
+    lastAnalysisTimeRef.current = Date.now();
+  }, [activeSymbol]);
+
+  // 1. 事件驱动触发：市价突破 / 偏离阈值自动重新生成 (冷却 60 秒)
+  useEffect(() => {
+    if (!isAutoPilotEnabled || !ticker?.last_price || ticker.symbol !== activeSymbol || isTriggeringRef.current) return;
     const p = ticker.last_price;
     if (lastAnalyzedPriceRef.current <= 0) {
       lastAnalyzedPriceRef.current = p;
       return;
     }
     const diffPct = Math.abs(p - lastAnalyzedPriceRef.current) / lastAnalyzedPriceRef.current;
-    // 当价格偏离超过 1.2% 且距离上次研判超过 20 秒时，自动触发更新
-    if (diffPct >= 0.012 && Date.now() - lastAnalysisTimeRef.current > 20000) {
+    if (Date.now() - lastAnalysisTimeRef.current > 60000 && diffPct >= 0.015) {
       triggerAnalysisWithReason(`价格偏离 ${(diffPct * 100).toFixed(1)}% 动态自愈重算`);
     }
-  }, [ticker?.last_price, isAutoPilotEnabled]);
+  }, [ticker?.last_price, ticker?.symbol, activeSymbol, isAutoPilotEnabled]);
 
-  // 2. 事件驱动触发：持仓浮盈达标或防守预警自动触发调仓决策
+  // 2. 事件驱动触发：持仓浮盈达标或防守预警自动触发调仓决策 (冷却 60 秒)
   useEffect(() => {
     if (!isAutoPilotEnabled || isTriggeringRef.current || !Array.isArray(positions)) return;
     const pos = positions.find((p) => p && p.symbol === activeSymbol && (p.pos_size ?? 0) > 0);
     if (pos && pos.upl_ratio !== undefined) {
       const ratio = pos.upl_ratio;
-      // 浮盈达标 >= 2.5% 或 浮亏 <= -1.5% 且距离上次超过 30 秒
-      if ((ratio >= 0.025 || ratio <= -0.015) && Date.now() - lastAnalysisTimeRef.current > 30000) {
+      if (Date.now() - lastAnalysisTimeRef.current > 60000 && (ratio >= 0.03 || ratio <= -0.02)) {
         const tag = ratio > 0 ? `浮盈达标 (+${(ratio * 100).toFixed(1)}%) 调仓建议` : `持仓防守预警 (${(ratio * 100).toFixed(1)}%) 动态止损`;
         triggerAnalysisWithReason(tag);
       }
     }
   }, [positions, isAutoPilotEnabled, activeSymbol]);
 
-  // 3. 定时心跳巡检：每 90 秒自动评估一次盘面
+  // 3. 定时心跳巡检：每 120 秒自动评估一次盘面
   useEffect(() => {
     if (!isAutoPilotEnabled) return;
     const interval = setInterval(() => {
-      if (Date.now() - lastAnalysisTimeRef.current >= 90000 && !isTriggeringRef.current) {
+      if (Date.now() - lastAnalysisTimeRef.current >= 120000 && !isTriggeringRef.current) {
         triggerAnalysisWithReason('周期心跳自动巡检');
       }
-    }, 15000);
+    }, 20000);
     return () => clearInterval(interval);
   }, [isAutoPilotEnabled, activeSymbol, activeTimeframe]);
 

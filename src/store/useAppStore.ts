@@ -51,6 +51,14 @@ export interface AppState {
   activeSymbol: string;
   activeTimeframe: TimeFrame;
 
+  // 3.1 自选与专注标的池 (Focus Pool - Crypto & TradFi)
+  focusSymbols: string[];
+  focusMode: 'SINGLE_SYMBOL' | 'MULTI_SYMBOL_POOL';
+  maxScaleLayers: number;
+  scaleInStrategy: 'PYRAMIDING' | 'PULLBACK_DCA' | 'SMART_HYBRID';
+  autoReversalEnabled: boolean;
+  focusTickers: Record<string, TickerData>;
+
   // 4. 实时市场行情
   ticker: TickerData | null;
   orderBook: OrderBookDepth | null;
@@ -95,6 +103,15 @@ export interface AppState {
 
   setActiveSymbol: (symbol: string) => void;
   setActiveTimeframe: (tf: TimeFrame) => void;
+  setFocusSymbols: (symbols: string[]) => void;
+  addFocusSymbol: (symbol: string) => void;
+  removeFocusSymbol: (symbol: string) => void;
+  setFocusMode: (mode: 'SINGLE_SYMBOL' | 'MULTI_SYMBOL_POOL') => void;
+  setMaxScaleLayers: (layers: number) => void;
+  setScaleInStrategy: (strat: 'PYRAMIDING' | 'PULLBACK_DCA' | 'SMART_HYBRID') => void;
+  setAutoReversalEnabled: (enabled: boolean) => void;
+  updateFocusTicker: (ticker: TickerData) => void;
+
   setSelectedPrice: (price: number | null) => void;
   setAdoptedOrderParams: (params: AIAdoptPayload | null) => void;
 
@@ -143,9 +160,38 @@ const initialBalance: AccountBalanceModel = {
   timestamp: Date.now(),
 };
 
-export const useAppStore = create<AppState>((set) => ({
+const DEFAULT_FOCUS_SYMBOLS = [
+  'BTC-USDT-SWAP',
+  'ETH-USDT-SWAP',
+  'SOL-USDT-SWAP',
+  'XAU-USDT-SWAP',
+  'NVDA-USDT-SWAP',
+  'ONDO-USDT-SWAP',
+];
+
+const loadSavedFocusSymbols = (): string[] => {
+  try {
+    const saved = localStorage.getItem('okx_dog_watchlist');
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+    }
+  } catch {}
+  return DEFAULT_FOCUS_SYMBOLS;
+};
+
+const loadSavedLiveMode = (): boolean => {
+  try {
+    const saved = localStorage.getItem('okx_dog_is_live_mode');
+    return saved === 'true';
+  } catch {
+    return false;
+  }
+};
+
+export const useAppStore = create<AppState>((set, get) => ({
   hasConfiguredOkx: true,
-  isLiveMode: false,
+  isLiveMode: loadSavedLiveMode(),
   apiKeyMasked: '6b2a****8e91',
   permissions: ['read', 'trade'],
   hasWithdrawPermission: false,
@@ -173,6 +219,13 @@ export const useAppStore = create<AppState>((set) => ({
   activeSymbol: 'BTC-USDT-SWAP',
   activeTimeframe: '1h',
 
+  focusSymbols: loadSavedFocusSymbols(),
+  focusMode: 'SINGLE_SYMBOL',
+  maxScaleLayers: 3,
+  scaleInStrategy: 'SMART_HYBRID',
+  autoReversalEnabled: true,
+  focusTickers: {},
+
   ticker: null,
   orderBook: null,
   trades: [],
@@ -192,14 +245,23 @@ export const useAppStore = create<AppState>((set) => ({
   selectedPrice: null,
   adoptedOrderParams: null,
 
-  setLiveMode: (isLive) => set({ isLiveMode: isLive }),
-  setCredentialsInfo: (info) =>
+  setLiveMode: (isLive) => {
+    try {
+      localStorage.setItem('okx_dog_is_live_mode', String(isLive));
+    } catch {}
+    set({ isLiveMode: isLive });
+  },
+  setCredentialsInfo: (info) => {
+    try {
+      localStorage.setItem('okx_dog_is_live_mode', String(info.isLiveMode));
+    } catch {}
     set({
       hasConfiguredOkx: true,
       apiKeyMasked: info.apiKeyMasked,
       isLiveMode: info.isLiveMode,
       permissions: info.permissions,
-    }),
+    });
+  },
   clearCredentials: () =>
     set({
       hasConfiguredOkx: false,
@@ -237,10 +299,11 @@ export const useAppStore = create<AppState>((set) => ({
       riskRules: { ...state.riskRules, ...rules },
     })),
 
-  setActiveSymbol: (symbol) =>
+  setActiveSymbol: (symbol) => {
+    const cachedTicker = get().focusTickers[symbol] || null;
     set({
       activeSymbol: symbol,
-      ticker: null,
+      ticker: cachedTicker,
       orderBook: null,
       trades: [],
       indicators: null,
@@ -249,12 +312,53 @@ export const useAppStore = create<AppState>((set) => ({
       aiThinkingStream: '',
       selectedPrice: null,
       adoptedOrderParams: null,
-    }),
+    });
+  },
   setActiveTimeframe: (tf) => set({ activeTimeframe: tf }),
+  
+  setFocusSymbols: (symbols) => {
+    try {
+      localStorage.setItem('okx_dog_watchlist', JSON.stringify(symbols));
+    } catch {}
+    set({ focusSymbols: symbols });
+  },
+  addFocusSymbol: (symbol) => {
+    const prev = get().focusSymbols;
+    if (!prev.includes(symbol)) {
+      const next = [...prev, symbol];
+      try {
+        localStorage.setItem('okx_dog_watchlist', JSON.stringify(next));
+      } catch {}
+      set({ focusSymbols: next });
+    }
+  },
+  removeFocusSymbol: (symbol) => {
+    const prev = get().focusSymbols;
+    const next = prev.filter((s) => s !== symbol);
+    try {
+      localStorage.setItem('okx_dog_watchlist', JSON.stringify(next));
+    } catch {}
+    set({ focusSymbols: next });
+  },
+  setFocusMode: (mode) => set({ focusMode: mode }),
+  setMaxScaleLayers: (layers) => set({ maxScaleLayers: layers }),
+  setScaleInStrategy: (strat) => set({ scaleInStrategy: strat }),
+  setAutoReversalEnabled: (enabled) => set({ autoReversalEnabled: enabled }),
+  updateFocusTicker: (ticker) =>
+    set((state) => ({
+      focusTickers: { ...state.focusTickers, [ticker.symbol]: ticker },
+      ticker: state.activeSymbol === ticker.symbol ? ticker : state.ticker,
+    })),
+
   setSelectedPrice: (price) => set({ selectedPrice: price }),
   setAdoptedOrderParams: (params) => set({ adoptedOrderParams: params }),
 
-  setTicker: (ticker) => set({ ticker }),
+  setTicker: (ticker) => {
+    set((state) => ({
+      ticker: state.activeSymbol === ticker.symbol ? ticker : state.ticker,
+      focusTickers: { ...state.focusTickers, [ticker.symbol]: ticker },
+    }));
+  },
   setOrderBook: (ob) => set({ orderBook: ob }),
   addTrade: (trade) =>
     set((state) => ({

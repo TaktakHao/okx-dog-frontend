@@ -101,16 +101,22 @@ export function formatPrice(price: number | null | undefined, symbol?: string): 
   if (price === null || price === undefined || isNaN(price)) return '0.00';
   const sym = symbol ? symbol.toUpperCase() : '';
 
-  if (sym.includes('EUR') || sym.includes('GBP') || sym.includes('JPY') || sym.includes('DOGE') || sym.includes('SUI')) {
-    return price.toFixed(4);
+  if (sym.includes('EUR') || sym.includes('GBP') || sym.includes('JPY') || sym.includes('DOGE') || sym.includes('SUI') || sym.includes('ONDO')) {
+    return price < 0.01 ? price.toFixed(6) : price.toFixed(4);
   }
   if (price >= 1000) {
     return price.toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 2 });
   }
-  if (price >= 1) {
+  if (price >= 10) {
     return price.toFixed(2);
   }
-  return price.toFixed(4);
+  if (price >= 1) {
+    return price.toFixed(3);
+  }
+  if (price > 0.0001) {
+    return price.toFixed(4);
+  }
+  return price.toFixed(6);
 }
 
 /**
@@ -127,3 +133,30 @@ export function formatSize(size: number | null | undefined, symbol?: string): st
   }
   return size.toFixed(1);
 }
+
+/**
+ * 获取标的基准默认保底价格 (用于离线/沙盒/初始化回退)
+ */
+export function getSymbolDefaultPrice(symbol: string = 'BTC-USDT-SWAP'): number {
+  if (!symbol) return 63428.0;
+  const sym = symbol.toUpperCase();
+  if (sym.includes('ETH')) return 2680.0;
+  if (sym.includes('BTC')) return 63428.0;
+  if (sym.includes('SOL')) return 188.0;
+  if (sym.includes('XAU') || sym.includes('PAXG')) return 2650.0;
+  if (sym.includes('XAG')) return 31.5;
+  if (sym.includes('NVDA')) return 128.5;
+  if (sym.includes('TSLA')) return 245.0;
+  if (sym.includes('AAPL')) return 185.0;
+  if (sym.includes('EUR')) return 1.085;
+  if (sym.includes('GBP')) return 1.275;
+  if (sym.includes('ONDO')) return 0.725;
+  if (sym.includes('PENDLE')) return 4.25;
+  if (sym.includes('MKR')) return 1650.0;
+  if (sym.includes('DOGE')) return 0.125;
+  if (sym.includes('BNB')) return 580.0;
+  if (sym.includes('XRP')) return 0.58;
+  if (sym.includes('SUI')) return 1.85;
+  return 100.0;
+}
+

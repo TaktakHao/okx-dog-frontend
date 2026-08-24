@@ -4,7 +4,7 @@
  * 渲染买卖双向成交流 (Buy 绿 / Sell 红)、大单异动呼吸光效高亮与毫秒级时间戳
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { Activity, Zap } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
 import { MarketTrade } from '../types';
@@ -12,6 +12,7 @@ import {
   getBaseCurrency,
   formatPrice,
   formatSize,
+  getSymbolDefaultPrice,
 } from '../utils/symbolHelper';
 
 export const TradeList: React.FC = () => {
@@ -19,7 +20,6 @@ export const TradeList: React.FC = () => {
     activeSymbol,
     ticker,
     trades: storeTrades,
-    addTrade,
     setSelectedPrice,
   } = useAppStore();
 
@@ -46,21 +46,10 @@ export const TradeList: React.FC = () => {
     };
   };
 
-  const getSymbolDefaultPrice = (sym: string) => {
-    if (sym.includes('BTC')) return 63428.0;
-    if (sym.includes('ETH')) return 2680.0;
-    if (sym.includes('SOL')) return 188.0;
-    if (sym.includes('XAU') || sym.includes('PAXG')) return 2650.0;
-    if (sym.includes('NVDA')) return 128.5;
-    if (sym.includes('TSLA')) return 245.0;
-    if (sym.includes('EUR')) return 1.085;
-    if (sym.includes('ONDO')) return 0.725;
-    return 100.0;
-  };
-
   // 初始化历史成交记录
   useEffect(() => {
-    const base = ticker?.last_price || getSymbolDefaultPrice(activeSymbol);
+    const activePrice = ticker && ticker.symbol === activeSymbol ? ticker.last_price : undefined;
+    const base = activePrice || getSymbolDefaultPrice(activeSymbol);
     const initialTrades: MarketTrade[] = [];
     const prec = base >= 100 ? 1 : 4;
     for (let i = 0; i < 25; i++) {
@@ -75,26 +64,30 @@ export const TradeList: React.FC = () => {
       });
     }
     setTrades(initialTrades.reverse());
-  }, [activeSymbol, ticker?.last_price]);
+  }, [activeSymbol]);
 
   // 监听 Store 中的成交推流
   useEffect(() => {
-    if (storeTrades.length > 0) {
+    if (storeTrades.length > 0 && storeTrades[0]?.symbol === activeSymbol) {
       setTrades(storeTrades);
     }
-  }, [storeTrades]);
+  }, [storeTrades, activeSymbol]);
 
-  // 模拟沙盒高频成交流水 (若无外部 WS 流)
+  const lastPriceRef = useRef<number | undefined>(
+    ticker && ticker.symbol === activeSymbol ? ticker.last_price : undefined
+  );
+  lastPriceRef.current = ticker && ticker.symbol === activeSymbol ? ticker.last_price : undefined;
+
+  // 模拟沙盒成交流水 (若无外部 WS 流)
   useEffect(() => {
     const timer = setInterval(() => {
-      const base = ticker?.last_price || getSymbolDefaultPrice(activeSymbol);
+      const base = lastPriceRef.current || getSymbolDefaultPrice(activeSymbol);
       const newTrade = generateMockTrade(base);
-      addTrade(newTrade);
       setTrades((prev) => [newTrade, ...prev.slice(0, 49)]);
-    }, 800 + Math.random() * 700);
+    }, 1500 + Math.random() * 1000);
 
     return () => clearInterval(timer);
-  }, [activeSymbol, ticker?.last_price, addTrade]);
+  }, [activeSymbol]);
 
 
   return (

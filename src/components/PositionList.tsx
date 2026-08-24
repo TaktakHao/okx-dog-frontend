@@ -18,7 +18,9 @@ import {
 } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
 import { tradeApi } from '../services/api';
+import { wsService } from '../services/websocket';
 import { PositionModel, PositionTPSLRequest, OrderModel } from '../types';
+import { formatPrice } from '../utils/symbolHelper';
 
 export const PositionList: React.FC = () => {
   const { positions, setPositions, orders, setOrders, riskStatus, isLiveMode } = useAppStore();
@@ -72,17 +74,32 @@ export const PositionList: React.FC = () => {
     handleRefreshData();
   }, [activeTab, isLiveMode]);
 
-  // 定时刷新活跃持仓与挂单
+  // 定时刷新活跃持仓、当前挂单与历史平仓战绩
   useEffect(() => {
     const timer = setInterval(() => {
       if (activeTab === 'positions') {
         tradeApi.getPositions().then((res) => setPositions(Array.isArray(res) ? res : [])).catch(() => {});
       } else if (activeTab === 'orders') {
         tradeApi.getOrders().then((res) => setOrders(Array.isArray(res) ? res : [])).catch(() => {});
+      } else if (activeTab === 'history') {
+        tradeApi.getHistory().then((res) => setClosedTrades(Array.isArray(res) ? res : [])).catch(() => {});
       }
-    }, 4000);
+    }, 3000);
     return () => clearInterval(timer);
   }, [activeTab, isLiveMode, setPositions, setOrders]);
+
+  // WebSocket 实时推送监听
+  useEffect(() => {
+    const handleHistoryPush = (payload: any) => {
+      if (payload && Array.isArray(payload.data)) {
+        setClosedTrades(payload.data);
+      }
+    };
+    wsService.subscribe('history', handleHistoryPush);
+    return () => {
+      wsService.unsubscribe('history', handleHistoryPush);
+    };
+  }, []);
 
 
   /**
@@ -136,10 +153,12 @@ export const PositionList: React.FC = () => {
    * 打开快捷平仓弹窗
    */
   const openCloseModal = (pos: PositionModel, type: 'market' | 'limit') => {
+    const curMark = pos.mark_price ?? pos.mark_px ?? 0;
+    const curSize = pos.pos_size ?? pos.pos ?? 0;
     setCloseTargetPos(pos);
     setCloseType(type);
-    setClosePrice(type === 'limit' ? String(pos.mark_price) : '');
-    setCloseSize(String(pos.pos_size));
+    setClosePrice(type === 'limit' ? String(curMark) : '');
+    setCloseSize(String(curSize));
   };
 
   /**
@@ -281,6 +300,12 @@ export const PositionList: React.FC = () => {
                     const uplRatio = (pos.upl_ratio ?? 0) * 100;
                     const isProfitable = upl >= 0;
 
+                    const curAvgPx = pos.avg_price ?? pos.avg_px ?? 0;
+                    const curMarkPx = pos.mark_price ?? pos.mark_px ?? 0;
+                    const curPosSize = pos.pos_size ?? pos.pos ?? 0;
+                    const curLiqPx = pos.liquidation_price ?? pos.liq_px;
+                    const curNotional = pos.notional_usd ?? (curPosSize * curMarkPx);
+
                     return (
                       <tr key={pos.pos_id || pos.id || `${pos.symbol}-${pos.pos_side}`} className="hover:bg-bg-elevated/40 transition-colors">
                         <td className="py-2.5 px-3">
@@ -310,21 +335,24 @@ export const PositionList: React.FC = () => {
                           </div>
                         </td>
                         <td className="py-2.5 px-3 font-medium text-text-primary">
-                          {pos.pos_size} <span className="text-[10px] text-text-muted">张/币</span>
+                          {curPosSize} <span className="text-[10px] text-text-muted">张/币</span>
                         </td>
-                        <td className="py-2.5 px-3 text-text-secondary">${(pos.avg_price ?? 0).toLocaleString()}</td>
-                        <td className="py-2.5 px-3 font-semibold text-text-primary">${(pos.mark_price ?? 0).toLocaleString()}</td>
+                        <td className="py-2.5 px-3 text-text-secondary">${formatPrice(curAvgPx, pos.symbol)}</td>
+                        <td className="py-2.5 px-3 font-semibold text-text-primary">${formatPrice(curMarkPx, pos.symbol)}</td>
                         <td className="py-2.5 px-3 font-bold">
-                          {isSpot ? (
-                            <span className="text-text-muted font-normal">现货持有 (~${(pos.notional_usd ?? (pos.pos_size * (pos.mark_price ?? 0))).toFixed(2)})</span>
-                          ) : (
+                          <div className="flex flex-col">
                             <span className={isProfitable ? 'text-trade-up' : 'text-trade-down'}>
                               {isProfitable ? '+' : ''}${upl.toFixed(2)} ({isProfitable ? '+' : ''}{uplRatio.toFixed(2)}%)
                             </span>
-                          )}
+                            {isSpot && (
+                              <span className="text-[10px] text-text-muted font-normal">
+                                现货持有 (~${curNotional.toFixed(2)})
+                              </span>
+                            )}
+                          </div>
                         </td>
                         <td className="py-2.5 px-3 text-trade-warning font-medium">
-                          {isSpot ? '--' : pos.liquidation_price ? `$${(pos.liquidation_price).toLocaleString()}` : '--'}
+                          {isSpot ? '--' : curLiqPx ? `$${formatPrice(curLiqPx, pos.symbol)}` : '--'}
                         </td>
                         <td className="py-2.5 px-3 text-text-secondary">
                           ${(pos.margin ?? 0).toFixed(2)}
@@ -340,10 +368,10 @@ export const PositionList: React.FC = () => {
                                 </span>
                               )}
                               <span className="text-trade-up font-mono">
-                                TP: {pos.tp_trigger_price ? `$${pos.tp_trigger_price}` : (pos.tp_triggered_50 ? 'TP1已分批止盈' : '--')}
+                                TP: {pos.tp_trigger_price ? `$${formatPrice(pos.tp_trigger_price, pos.symbol)}` : (pos.tp_triggered_50 ? 'TP1已分批止盈' : '--')}
                               </span>
                               <span className="text-trade-down font-mono">
-                                SL: {pos.sl_trigger_price ? `$${pos.sl_trigger_price}` : '--'}
+                                SL: {pos.sl_trigger_price ? `$${formatPrice(pos.sl_trigger_price, pos.symbol)}` : '--'}
                               </span>
                               <button
                                 onClick={() => openTPSLModal(pos)}
@@ -473,64 +501,100 @@ export const PositionList: React.FC = () => {
                 <span className="text-[11px] text-text-muted/80">已完成平仓的订单与盈亏归因将在此归档</span>
               </div>
             ) : (
-              <table className="w-full text-left border-collapse font-mono-num">
-                <thead>
-                  <tr className="border-b border-bg-border bg-bg-primary/50 text-[10px] font-mono text-text-muted">
-                    <th className="py-2 px-3 font-medium">平仓时间</th>
-                    <th className="py-2 px-3 font-medium">标的 / 方向</th>
-                    <th className="py-2 px-3 font-medium">开仓价 → 平仓价</th>
-                    <th className="py-2 px-3 font-medium">数量 / 杠杆</th>
-                    <th className="py-2 px-3 font-medium">已实现盈亏 (USDT)</th>
-                    <th className="py-2 px-3 font-medium">收益率 (ROI)</th>
-                    <th className="py-2 px-3 font-medium text-right">平仓原因</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-bg-border/60">
-                  {closedTrades.map((trade, idx) => {
-                    const isLong = trade.pos_side?.toLowerCase() === 'long';
-                    const pnl = trade.realized_pnl ?? 0;
-                    const roi = trade.roi_pct ?? 0;
-                    const isWin = pnl >= 0;
+              <div className="flex flex-col h-full">
+                {/* 历史平仓战绩快速汇总条 */}
+                {(() => {
+                  const totalCount = closedTrades.length;
+                  const winCount = closedTrades.filter((t) => (t.realized_pnl ?? 0) > 0).length;
+                  const winRate = totalCount > 0 ? (winCount / totalCount) * 100 : 0;
+                  const totalRealized = closedTrades.reduce((acc, t) => acc + (t.realized_pnl ?? 0), 0);
+                  const isTotalWin = totalRealized >= 0;
 
-                    return (
-                      <tr key={idx} className="hover:bg-bg-elevated/40 transition-colors">
-                        <td className="py-2.5 px-3 text-[11px] text-text-muted">
-                          {new Date(trade.timestamp).toLocaleTimeString()}
-                        </td>
-                        <td className="py-2.5 px-3">
-                          <span
-                            className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-bold ${
-                              isLong ? 'bg-trade-up/15 text-trade-up' : 'bg-trade-down/15 text-trade-down'
-                            }`}
-                          >
-                            {isLong ? '做多' : '做空'}
-                          </span>
-                          <span className="ml-1.5 font-bold text-text-primary">{trade.symbol}</span>
-                        </td>
-                        <td className="py-2.5 px-3 text-text-secondary">
-                          ${(trade.entry_price ?? 0).toLocaleString()} <span className="text-text-muted">➔</span> ${(trade.exit_price ?? 0).toLocaleString()}
-                        </td>
-                        <td className="py-2.5 px-3 text-text-primary">
-                          {trade.size} ({trade.leverage}x)
-                        </td>
-                        <td className="py-2.5 px-3 font-bold">
-                          <span className={isWin ? 'text-trade-up' : 'text-trade-down'}>
-                            {isWin ? '+' : ''}${pnl.toFixed(2)}
-                          </span>
-                        </td>
-                        <td className="py-2.5 px-3 font-bold">
-                          <span className={isWin ? 'text-trade-up' : 'text-trade-down'}>
-                            {isWin ? '+' : ''}{roi.toFixed(2)}%
-                          </span>
-                        </td>
-                        <td className="py-2.5 px-3 text-right text-[11px] text-text-muted">
-                          {trade.reason || '正常平仓'}
-                        </td>
+                  return (
+                    <div className="flex items-center justify-between px-3 py-1.5 bg-bg-elevated/40 border-b border-bg-border text-[11px] font-mono-num shrink-0">
+                      <div className="flex items-center space-x-3 text-text-muted">
+                        <span>总平仓: <strong className="text-text-primary">{totalCount}</strong> 笔</span>
+                        <span>胜率: <strong className={winRate >= 50 ? 'text-trade-up' : 'text-trade-warning'}>{winRate.toFixed(1)}%</strong> ({winCount}胜/{totalCount - winCount}负)</span>
+                      </div>
+                      <div className="flex items-center space-x-1.5">
+                        <span className="text-text-muted">累计已实现盈亏:</span>
+                        <span className={`font-bold ${isTotalWin ? 'text-trade-up' : 'text-trade-down'}`}>
+                          {isTotalWin ? '+' : ''}${totalRealized.toFixed(2)} USDT
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                <div className="flex-1 overflow-auto">
+                  <table className="w-full text-left border-collapse font-mono-num">
+                    <thead>
+                      <tr className="border-b border-bg-border bg-bg-primary/50 text-[10px] font-mono text-text-muted sticky top-0 bg-bg-secondary z-10">
+                        <th className="py-2 px-3 font-medium">平仓时间</th>
+                        <th className="py-2 px-3 font-medium">标的 / 方向</th>
+                        <th className="py-2 px-3 font-medium">开仓价 → 平仓价</th>
+                        <th className="py-2 px-3 font-medium">数量 / 杠杆</th>
+                        <th className="py-2 px-3 font-medium">已实现盈亏 (USDT)</th>
+                        <th className="py-2 px-3 font-medium">收益率 (ROI)</th>
+                        <th className="py-2 px-3 font-medium text-right">平仓原因</th>
                       </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+                    </thead>
+                    <tbody className="divide-y divide-bg-border/60">
+                      {closedTrades.map((trade, idx) => {
+                        const isLong = trade.pos_side?.toLowerCase() === 'long';
+                        const pnl = trade.realized_pnl ?? 0;
+                        const roi = trade.roi_pct ?? 0;
+                        const isWin = pnl >= 0;
+                        const d = new Date(trade.timestamp);
+                        const timeStr = !isNaN(d.getTime())
+                          ? d.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' })
+                          : '--:--:--';
+
+                        return (
+                          <tr key={trade.id || idx} className="hover:bg-bg-elevated/40 transition-colors">
+                            <td className="py-2.5 px-3 text-[11px] text-text-muted whitespace-nowrap">
+                              {timeStr}
+                            </td>
+                            <td className="py-2.5 px-3">
+                              <span
+                                className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-bold ${
+                                  isLong ? 'bg-trade-up/15 text-trade-up' : 'bg-trade-down/15 text-trade-down'
+                                }`}
+                              >
+                                {isLong ? '做多' : '做空'}
+                              </span>
+                              <span className="ml-1.5 font-bold text-text-primary">{trade.symbol}</span>
+                            </td>
+                            <td className="py-2.5 px-3 text-text-secondary whitespace-nowrap">
+                              ${Number(trade.entry_price ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })}
+                              <span className="text-text-muted mx-1">➔</span>
+                              ${Number(trade.exit_price ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })}
+                            </td>
+                            <td className="py-2.5 px-3 text-text-primary">
+                              {trade.size} ({trade.leverage}x)
+                            </td>
+                            <td className="py-2.5 px-3 font-bold">
+                              <span className={isWin ? 'text-trade-up' : 'text-trade-down'}>
+                                {isWin ? '+' : ''}${pnl.toFixed(2)}
+                              </span>
+                            </td>
+                            <td className="py-2.5 px-3 font-bold">
+                              <span className={isWin ? 'text-trade-up' : 'text-trade-down'}>
+                                {isWin ? '+' : ''}{roi.toFixed(2)}%
+                              </span>
+                            </td>
+                            <td className="py-2.5 px-3 text-right text-[11px] text-text-muted">
+                              <span className="px-1.5 py-0.5 rounded bg-bg-elevated border border-bg-border/60 text-text-secondary text-[10px]">
+                                {trade.reason || '正常平仓'}
+                              </span>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
             )}
           </>
         )}
@@ -639,7 +703,7 @@ export const PositionList: React.FC = () => {
               )}
 
               <div>
-                <label className="block text-text-muted mb-1">平仓数量 (当前持仓: {closeTargetPos.pos_size})</label>
+                <label className="block text-text-muted mb-1">平仓数量 (当前持仓: {closeTargetPos.pos_size ?? closeTargetPos.pos ?? 0})</label>
                 <input
                   type="number"
                   value={closeSize}

@@ -857,6 +857,12 @@ export interface PositionItem {
   is_breakeven_locked?: boolean;
   /** 是否已完成 50% 阶梯止盈 */
   tp_triggered_50?: boolean;
+  /** 当前已加仓层数 (初始建仓为 1) */
+  scale_layers?: number;
+  /** 上一次加仓价格 */
+  last_scale_price?: number | null;
+  /** 上一次加仓时间戳 (ms) */
+  last_scale_time?: number | null;
   /** 是否触发强平预警 */
   is_danger_alert?: boolean;
   /** 与 OKX 同步时间戳 (ms) */
@@ -1403,6 +1409,16 @@ export interface AutoPilotStatusModel {
   active_symbol: string;
   /** 多标的自动监控轮巡池 */
   symbols?: string[];
+  /** 自选与专注标的池 */
+  focus_symbols?: string[];
+  /** 操盘专注模式: SINGLE_SYMBOL 单标的专注量化 / MULTI_SYMBOL_POOL 多标的池 */
+  focus_mode?: 'SINGLE_SYMBOL' | 'MULTI_SYMBOL_POOL';
+  /** 最大加仓层数 (1~5层) */
+  max_scale_layers?: number;
+  /** 加仓策略类型: PYRAMIDING 顺势金字塔 / PULLBACK_DCA 动态回调 / SMART_HYBRID 智能混合 */
+  scale_in_strategy?: 'PYRAMIDING' | 'PULLBACK_DCA' | 'SMART_HYBRID';
+  /** 强反向信号是否自动反手平反开 */
+  auto_reversal_enabled?: boolean;
   /** 最大同时持仓标的数 */
   max_concurrent_positions?: number;
   /** 是否启用动态移动保本与跟踪止损 */
@@ -1413,6 +1429,10 @@ export interface AutoPilotStatusModel {
   min_confidence: number;
   /** 是否启用自适应智能杠杆 */
   auto_leverage_enabled: boolean;
+  /** 最低保留本金底线 (USDT，亏损至该值自动熔断停止操盘) */
+  stop_loss_equity_floor?: number | null;
+  /** 最大允许亏损金额 (USDT) */
+  max_loss_limit_usdt?: number | null;
   /** 是否为实盘环境 */
   is_live_mode: boolean;
   /** 最近一次后端自动巡检时间戳 (ms) */
@@ -1477,8 +1497,15 @@ export interface AutoPilotHistoryResponse {
 export interface AutoPilotStartRequest {
   min_confidence?: number;
   auto_leverage_enabled?: boolean;
+  stop_loss_equity_floor?: number | null;
+  max_loss_limit_usdt?: number | null;
   symbol?: string;
   symbols?: string[];
+  focus_symbols?: string[];
+  focus_mode?: 'SINGLE_SYMBOL' | 'MULTI_SYMBOL_POOL';
+  max_scale_layers?: number;
+  scale_in_strategy?: 'PYRAMIDING' | 'PULLBACK_DCA' | 'SMART_HYBRID';
+  auto_reversal_enabled?: boolean;
   max_concurrent_positions?: number;
   trailing_stop_enabled?: boolean;
   breakeven_trigger_ratio?: number;
@@ -1487,8 +1514,15 @@ export interface AutoPilotStartRequest {
 export interface AutoPilotConfigUpdateRequest {
   min_confidence?: number;
   auto_leverage_enabled?: boolean;
+  stop_loss_equity_floor?: number | null;
+  max_loss_limit_usdt?: number | null;
   symbol?: string;
   symbols?: string[];
+  focus_symbols?: string[];
+  focus_mode?: 'SINGLE_SYMBOL' | 'MULTI_SYMBOL_POOL';
+  max_scale_layers?: number;
+  scale_in_strategy?: 'PYRAMIDING' | 'PULLBACK_DCA' | 'SMART_HYBRID';
+  auto_reversal_enabled?: boolean;
   max_concurrent_positions?: number;
   trailing_stop_enabled?: boolean;
   breakeven_trigger_ratio?: number;
