@@ -62,6 +62,11 @@ export type InstType = InstrumentType; // 别名兼容
 export type EnvironmentMode = 'live' | 'demo';
 
 /**
+ * 系统风控状态 (与 contracts/schemas/common.json 保持严格对齐)
+ */
+export type RiskStatus = 'NORMAL' | 'WARNING' | 'CIRCUIT_BROKEN' | 'SAFE_MODE';
+
+/**
  * K线主分析周期
  */
 export type TimeFrame = '1m' | '5m' | '15m' | '1h' | '4h' | '1d';
@@ -114,7 +119,7 @@ export type SignalUrgency = 'LOW' | 'MEDIUM' | 'HIGH';
 /**
  * 建议交易计划委托类型
  */
-export type TradePlanOrderType = 'LIMIT' | 'MARKET' | 'TRIGGER_LIMIT';
+export type TradePlanOrderType = 'POST_ONLY' | 'LIMIT' | 'MARKET' | 'TRIGGER_LIMIT';
 
 /**
  * 周期趋势分析
@@ -324,6 +329,10 @@ export interface HardRiskRules {
   default_stop_loss_pct?: number;
   /** 默认附带止盈百分比 (可选) */
   default_take_profit_pct?: number;
+  /** 单笔最大风险暴露比例 (默认 0.01 代表 1% 净值，7000 USDT 本金对应 70 USDT 亏损上限) */
+  fixed_risk_per_trade_percent?: number;
+  /** 是否强制 Post-Only 只做 Maker 挂单以消除 Taker 滑点与高额费率 */
+  enforce_post_only?: boolean;
 }
 
 export type RiskRulesConfig = HardRiskRules; // 别名兼容
@@ -615,6 +624,8 @@ export type TakeProfitLevel = AITakeProfitLevel;
  * 建议交易计划与量化点位 (严格对齐 AI_SCHEMA properties.trade_plan)
  */
 export interface AITradePlan {
+  /** 战术交易逻辑分类 (如 SHORT_SQUEEZE, LIQUIDITY_SWEEP, TREND_CONTINUATION, MEAN_REVERSION, BREAKOUT_FOLLOW, WAIT_OBSERVE) */
+  intent?: string;
   /** 建议入场价格区间 [最低入场价, 最高入场价] */
   entry_range: [number, number];
   /** 梯级止盈目标列表 */
@@ -630,6 +641,46 @@ export interface AITradePlan {
 }
 
 export type TradePlan = AITradePlan;
+
+/**
+ * L1 毫秒级微观异动触发类型
+ */
+export type MarketAnomalyTriggerType = 
+  | 'OI_SURGE_BREAKOUT'
+  | 'EXTREME_FUNDING_DIVERGENCE'
+  | 'LIQUIDITY_SWEEP_REVERSAL'
+  | 'MASSIVE_LIQUIDATION_CASCADE';
+
+/**
+ * L1 毫秒级微观结构指标
+ */
+export interface MicrostructureMetrics {
+  symbol: string;
+  timestamp: number;
+  /** 前10档买卖盘挂单失衡率 OBI [-1.0, 1.0] */
+  order_book_imbalance: number;
+  /** 15m 累积主动买卖量差 CVD */
+  cumulative_volume_delta: number;
+  /** 15m 未平仓合约量变化率 (%) */
+  oi_surge_pct: number;
+  /** 当前当期资金费率折合年化率 (%) */
+  funding_rate_annualized: number;
+  /** 近5分钟清算爆仓名义金额 */
+  recent_liquidations_usdt?: number;
+}
+
+/**
+ * L1 触发 L2 条件唤醒的异动事件数据包
+ */
+export interface MarketAnomalyEvent {
+  event_id: string;
+  symbol: string;
+  timestamp: number;
+  trigger_type: MarketAnomalyTriggerType;
+  severity: 'INFO' | 'WARNING' | 'CRITICAL';
+  metrics_snapshot: MicrostructureMetrics;
+  reason: string;
+}
 
 /**
  * 风险评估与失效边界 (严格对齐 AI_SCHEMA properties.risk_assessment)

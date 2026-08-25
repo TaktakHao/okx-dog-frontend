@@ -267,14 +267,14 @@ export const ConsensusModal: React.FC<ConsensusModalProps> = ({
                         <div className="flex items-center justify-between border-b border-gray-800 pb-2">
                           <div className="text-sm font-bold text-emerald-400 flex items-center gap-1.5">
                             <TrendingUp className="h-4 w-4" />
-                            {consensusData.bull_opinion.role_name}
+                            🚀 冲锋多头分析师
                           </div>
-                          <span className="text-xs font-mono font-bold text-emerald-400">
-                            {(consensusData.bull_opinion.confidence * 100).toFixed(0)}%
+                          <span className="text-xs font-mono font-bold text-emerald-400 bg-emerald-950/60 px-2 py-0.5 rounded border border-emerald-800/60">
+                            置信度 {(consensusData.bull_opinion.confidence * 100).toFixed(0)}%
                           </span>
                         </div>
                         <div>
-                          <div className="text-xs font-semibold text-gray-400 mb-1">核心论据:</div>
+                          <div className="text-xs font-semibold text-gray-400 mb-1">进攻论据:</div>
                           <ul className="text-xs text-gray-300 space-y-1">
                             {consensusData.bull_opinion.key_arguments.map((arg, i) => (
                               <li key={i}>• {arg}</li>
@@ -282,8 +282,9 @@ export const ConsensusModal: React.FC<ConsensusModalProps> = ({
                           </ul>
                         </div>
                       </div>
-                      <div className="mt-3 pt-2 border-t border-gray-800 text-[11px] text-gray-500">
-                        立场: <span className="text-emerald-400 font-bold">{consensusData.bull_opinion.stance}</span>
+                      <div className="mt-3 pt-2 border-t border-gray-800 text-[11px] text-gray-400 flex justify-between">
+                        <span>立场: <strong className="text-emerald-400 font-bold">{consensusData.bull_opinion.stance}</strong></span>
+                        <span className="text-indigo-300 font-medium">✨ 动态赋权中</span>
                       </div>
                     </div>
 
@@ -293,14 +294,14 @@ export const ConsensusModal: React.FC<ConsensusModalProps> = ({
                         <div className="flex items-center justify-between border-b border-gray-800 pb-2">
                           <div className="text-sm font-bold text-rose-400 flex items-center gap-1.5">
                             <TrendingDown className="h-4 w-4" />
-                            {consensusData.bear_opinion.role_name}
+                            🛡️ 铁血风控挑刺官
                           </div>
-                          <span className="text-xs font-mono font-bold text-rose-400">
-                            {(consensusData.bear_opinion.confidence * 100).toFixed(0)}%
+                          <span className="text-xs font-mono font-bold text-rose-400 bg-rose-950/60 px-2 py-0.5 rounded border border-rose-800/60">
+                            置信度 {(consensusData.bear_opinion.confidence * 100).toFixed(0)}%
                           </span>
                         </div>
                         <div>
-                          <div className="text-xs font-semibold text-gray-400 mb-1">风险挑刺与阻力:</div>
+                          <div className="text-xs font-semibold text-gray-400 mb-1">排雷挑刺与风险:</div>
                           <ul className="text-xs text-gray-300 space-y-1">
                             {consensusData.bear_opinion.risk_warnings.map((risk, i) => (
                               <li key={i}>• {risk}</li>
@@ -308,8 +309,9 @@ export const ConsensusModal: React.FC<ConsensusModalProps> = ({
                           </ul>
                         </div>
                       </div>
-                      <div className="mt-3 pt-2 border-t border-gray-800 text-[11px] text-gray-500">
-                        立场: <span className="text-rose-400 font-bold">{consensusData.bear_opinion.stance}</span>
+                      <div className="mt-3 pt-2 border-t border-gray-800 text-[11px] text-gray-400 flex justify-between">
+                        <span>立场: <strong className="text-rose-400 font-bold">{consensusData.bear_opinion.stance}</strong></span>
+                        <span className="text-amber-400 font-medium">🛡️ 防守把关</span>
                       </div>
                     </div>
 
@@ -319,14 +321,14 @@ export const ConsensusModal: React.FC<ConsensusModalProps> = ({
                         <div className="flex items-center justify-between border-b border-gray-800 pb-2">
                           <div className="text-sm font-bold text-blue-400 flex items-center gap-1.5">
                             <MessageSquare className="h-4 w-4" />
-                            {consensusData.macro_opinion.role_name}
+                            🌐 全球资讯情报员
                           </div>
-                          <span className="text-xs font-mono font-bold text-blue-400">
-                            {(consensusData.macro_opinion.confidence * 100).toFixed(0)}%
+                          <span className="text-xs font-mono font-bold text-blue-400 bg-blue-950/60 px-2 py-0.5 rounded border border-blue-800/60">
+                            置信度 {(consensusData.macro_opinion.confidence * 100).toFixed(0)}%
                           </span>
                         </div>
                         <div>
-                          <div className="text-xs font-semibold text-gray-400 mb-1">宏观态势研判:</div>
+                          <div className="text-xs font-semibold text-gray-400 mb-1">大盘态势感知:</div>
                           <ul className="text-xs text-gray-300 space-y-1">
                             {consensusData.macro_opinion.key_arguments.map((arg, i) => (
                               <li key={i}>• {arg}</li>
@@ -334,8 +336,9 @@ export const ConsensusModal: React.FC<ConsensusModalProps> = ({
                           </ul>
                         </div>
                       </div>
-                      <div className="mt-3 pt-2 border-t border-gray-800 text-[11px] text-gray-500">
-                        立场: <span className="text-blue-400 font-bold">{consensusData.macro_opinion.stance}</span>
+                      <div className="mt-3 pt-2 border-t border-gray-800 text-[11px] text-gray-400 flex justify-between">
+                        <span>立场: <strong className="text-blue-400 font-bold">{consensusData.macro_opinion.stance}</strong></span>
+                        <span className="text-sky-300 font-medium">📡 全天候雷达</span>
                       </div>
                     </div>
                   </div>

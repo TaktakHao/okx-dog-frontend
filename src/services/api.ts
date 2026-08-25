@@ -696,6 +696,43 @@ export const studioApi = {
   },
 };
 
+// =============================================================================
+// 14. v3.6 模块：多智能体自适应强化进化与 AI 员工看板 API
+// =============================================================================
 
+import { TeamEvolutionStatus, EvolutionSnapshot, MultiAgentRewardOutcome } from '../types/evolution';
 
-
+export const evolutionApi = {
+  getTeamStatus: (): Promise<TeamEvolutionStatus> => {
+    return request<TeamEvolutionStatus>('/evolution/team');
+  },
+  getHistory: (): Promise<EvolutionSnapshot[]> => {
+    return request<EvolutionSnapshot[]>('/evolution/history');
+  },
+  rollbackToBaseline: (): Promise<TeamEvolutionStatus> => {
+    return request<TeamEvolutionStatus>('/evolution/rollback', {
+      method: 'POST',
+    });
+  },
+  resetTeam: (): Promise<TeamEvolutionStatus> => {
+    return request<TeamEvolutionStatus>('/evolution/reset', {
+      method: 'POST',
+    });
+  },
+  simulateReinforcement: (payload: {
+    symbol?: string;
+    pos_side?: string;
+    entry_price?: number;
+    exit_price?: number;
+    sl_price?: number;
+    realized_pnl?: number;
+    mfe_pct?: number;
+    mae_pct?: number;
+    is_crisis_defended?: boolean;
+  }): Promise<MultiAgentRewardOutcome> => {
+    return request<MultiAgentRewardOutcome>('/evolution/simulate-reinforcement', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+};

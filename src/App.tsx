@@ -34,6 +34,7 @@ import { NewsFeedModal } from './components/NewsFeedModal';
 import { DailyReviewModal } from './components/DailyReviewModal';
 import { ConsensusModal } from './components/ConsensusModal';
 import { QuantStudioModal } from './components/QuantStudioModal';
+import { AgentTeamModal } from './components/AgentTeamModal';
 import { TradingChart } from './components/TradingChart';
 import { OrderBook } from './components/OrderBook';
 import { TradeList } from './components/TradeList';
@@ -97,6 +98,7 @@ export const App: React.FC = () => {
   const [isNewsModalOpen, setIsNewsModalOpen] = useState(false);
   const [isDailyReviewModalOpen, setIsDailyReviewModalOpen] = useState(false);
   const [isConsensusModalOpen, setIsConsensusModalOpen] = useState(false);
+  const [isTeamModalOpen, setIsTeamModalOpen] = useState(false);
 
   // 快捷键支持 (Ctrl+P / Cmd+P 打开标的搜索弹窗)
   useEffect(() => {
@@ -592,6 +594,14 @@ export const App: React.FC = () => {
             </button>
 
             <button
+              onClick={() => setIsTeamModalOpen(true)}
+              className="flex items-center space-x-1 px-2 py-1 rounded bg-gradient-to-r from-indigo-950/60 to-purple-950/60 hover:from-indigo-900/80 hover:to-purple-900/80 text-indigo-300 hover:text-white border border-indigo-500/40 text-xs font-semibold transition cursor-pointer shadow-sm shadow-indigo-500/10"
+              title="AI 决策层员工档案、动态话语权与自主进化看板"
+            >
+              <span>👥 AI 员工</span>
+            </button>
+
+            <button
               onClick={openStudioModal}
               className="flex items-center space-x-1 px-2 py-1 rounded bg-bg-elevated hover:bg-cyan-950/40 text-cyan-400 hover:text-cyan-300 border border-cyan-500/30 text-xs font-semibold transition cursor-pointer shadow-sm shadow-cyan-500/10"
               title="v3.5 AI Quant Studio 策略代码实验室 & Codex Harness"
@@ -903,6 +913,11 @@ export const App: React.FC = () => {
       <QuantStudioModal
         isOpen={isStudioModalOpen}
         onClose={closeStudioModal}
+      />
+      {/* 10. v3.6 AI 决策员工看板模态窗挂载 */}
+      <AgentTeamModal
+        isOpen={isTeamModalOpen}
+        onClose={() => setIsTeamModalOpen(false)}
       />
     </div>
   );
