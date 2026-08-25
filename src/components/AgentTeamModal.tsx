@@ -12,7 +12,6 @@ import {
   Sparkles,
   RotateCcw,
   CheckCircle2,
-  Play,
 } from 'lucide-react';
 import { evolutionApi } from '../services/api';
 import { AgentEmployee, TeamEvolutionStatus } from '../types/evolution';
@@ -80,30 +79,6 @@ export const AgentTeamModal: React.FC<AgentTeamModalProps> = ({
     }
   };
 
-  const handleSimulate = async () => {
-    try {
-      setActionLoading(true);
-      const res = await evolutionApi.simulateReinforcement({
-        symbol: 'BTC-USDT-SWAP',
-        pos_side: 'LONG',
-        entry_price: 96000,
-        exit_price: 97800,
-        sl_price: 95200,
-        realized_pnl: 180,
-        mfe_pct: 0.022,
-        mae_pct: 0.002,
-        is_crisis_defended: true,
-      });
-      await loadTeamStatus();
-      setLastMessage(`🎉 模拟演化结算成功！${res.summary}`);
-      setTimeout(() => setLastMessage(null), 5000);
-    } catch (e) {
-      alert('模拟失败: ' + (e as Error).message);
-    } finally {
-      setActionLoading(false);
-    }
-  };
-
   if (!isOpen) return null;
 
   const renderIcon = (iconName: string) => {
@@ -142,26 +117,17 @@ export const AgentTeamModal: React.FC<AgentTeamModalProps> = ({
                 </h2>
                 <span className="rounded-full bg-emerald-500/10 border border-emerald-500/30 px-2.5 py-0.5 text-xs font-semibold text-emerald-400 flex items-center gap-1">
                   <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-                  自动升级进化中
+                  实盘自主演进中
                 </span>
               </div>
               <p className="text-xs text-gray-400 mt-0.5">
-                当前决策层共有 {teamData?.team_members.length || 5} 位专业量化员工，实时根据实战表现动态调整话语权
+                当前决策层共有 {teamData?.team_members.length || 5} 位专业量化员工，决策话语权仅由实盘交易结算闭环驱动（已物理隔离模拟干预）
               </p>
             </div>
           </div>
 
           {/* 状态与关闭 */}
           <div className="flex items-center gap-3">
-            <button
-              onClick={handleSimulate}
-              disabled={actionLoading}
-              title="模拟一笔盈利单并触发经验值自适应演化"
-              className="flex items-center gap-1.5 rounded-lg bg-indigo-600/20 border border-indigo-500/30 px-3 py-1.5 text-xs font-medium text-indigo-300 hover:bg-indigo-600/30 transition disabled:opacity-50"
-            >
-              <Play className="h-3.5 w-3.5" />
-              模拟演进对决
-            </button>
             <button
               onClick={loadTeamStatus}
               disabled={loading}
