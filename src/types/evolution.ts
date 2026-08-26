@@ -23,6 +23,51 @@ export interface AgentEmployee {
   recent_achievement?: string;
 }
 
+export interface InternProfile {
+  role_id: string;
+  name: string;
+  nickname: string;
+  avatar_icon: string;
+  title: string;
+  model_name: string;
+  provider: string;
+  status: string;
+  total_trials: number;
+  agreement_rate: number;
+  virtual_win_rate_7d: number;
+  virtual_wins: number;
+  virtual_losses: number;
+  virtual_total_pnl_pct: number;
+  contract_compliance_rate: number;
+  is_promotion_ready: boolean;
+  promotion_checklist: Record<string, boolean>;
+  recent_feedback?: string;
+}
+
+export interface DatasetStats {
+  total_samples: number;
+  qualified_sft_samples: number;
+  refined_samples: number;
+  chosen_samples: number;
+  rejected_samples: number;
+  intern_profile: Partial<InternProfile>;
+}
+
+export interface DatasetExportFile {
+  name: string;
+  type: string;
+  count: number;
+  download_url: string;
+}
+
+export interface DatasetExportResult {
+  sft_count: number;
+  dpo_count: number;
+  refined_count: number;
+  files: DatasetExportFile[];
+  colab_guide_url: string;
+}
+
 export interface TeamEvolutionStatus {
   team_members: AgentEmployee[];
   active_epoch: string;
@@ -30,6 +75,7 @@ export interface TeamEvolutionStatus {
   harness_baseline_status: 'STABLE' | 'TESTING' | 'ROLLED_BACK';
   last_updated_time: number;
   recent_learned_rules: string[];
+  intern_profile?: InternProfile;
 }
 
 export interface EvolutionSnapshot {

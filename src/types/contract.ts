@@ -1433,6 +1433,8 @@ export interface AutoPilotStatusModel {
   stop_loss_equity_floor?: number | null;
   /** 最大允许亏损金额 (USDT) */
   max_loss_limit_usdt?: number | null;
+  /** 操盘激进程度: CONSERVATIVE 保守稳健 / BALANCED 标准量化 / AGGRESSIVE 积极进攻 */
+  aggressiveness_mode?: 'CONSERVATIVE' | 'BALANCED' | 'AGGRESSIVE';
   /** 是否为实盘环境 */
   is_live_mode: boolean;
   /** 最近一次后端自动巡检时间戳 (ms) */
@@ -1495,6 +1497,7 @@ export interface AutoPilotHistoryResponse {
 }
 
 export interface AutoPilotStartRequest {
+  aggressiveness_mode?: 'CONSERVATIVE' | 'BALANCED' | 'AGGRESSIVE';
   min_confidence?: number;
   auto_leverage_enabled?: boolean;
   stop_loss_equity_floor?: number | null;
@@ -1512,6 +1515,7 @@ export interface AutoPilotStartRequest {
 }
 
 export interface AutoPilotConfigUpdateRequest {
+  aggressiveness_mode?: 'CONSERVATIVE' | 'BALANCED' | 'AGGRESSIVE';
   min_confidence?: number;
   auto_leverage_enabled?: boolean;
   stop_loss_equity_floor?: number | null;

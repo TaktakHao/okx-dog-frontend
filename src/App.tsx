@@ -25,7 +25,7 @@ import {
 } from 'lucide-react';
 import { useAppStore } from './store/useAppStore';
 import { wsService } from './services/websocket';
-import { marketApi, tradeApi, systemApi, aiApi, autoPilotApi } from './services/api';
+import { marketApi, tradeApi, systemApi, aiApi, autoPilotApi, newsApi } from './services/api';
 import { SecurityModal } from './components/SecurityModal';
 import { PaperConfigModal } from './components/PaperConfigModal';
 import { SymbolSelectorModal } from './components/SymbolSelectorModal';
@@ -99,6 +99,25 @@ export const App: React.FC = () => {
   const [isDailyReviewModalOpen, setIsDailyReviewModalOpen] = useState(false);
   const [isConsensusModalOpen, setIsConsensusModalOpen] = useState(false);
   const [isTeamModalOpen, setIsTeamModalOpen] = useState(false);
+  const [latestNewsSnippet, setLatestNewsSnippet] = useState<string>('【实时情报】全网主流加密与宏观资讯感知中枢就绪');
+
+  // 定时刷新最新 1 条情报摘要
+  useEffect(() => {
+    const fetchNewsSnippet = () => {
+      newsApi.getFeed(3)
+        .then((res) => {
+          if (res?.news && res.news.length > 0) {
+            const first = res.news[0];
+            const prefix = first.urgency === 'P0' ? '🚨 [突发黑天鹅] ' : first.urgency === 'P1' ? '⚡ [重要情报] ' : '📰 [宏观情报] ';
+            setLatestNewsSnippet(`${prefix}${first.title}`);
+          }
+        })
+        .catch(() => {});
+    };
+    fetchNewsSnippet();
+    const timer = setInterval(fetchNewsSnippet, 15000);
+    return () => clearInterval(timer);
+  }, []);
 
   // 快捷键支持 (Ctrl+P / Cmd+P 打开标的搜索弹窗)
   useEffect(() => {
@@ -547,7 +566,7 @@ export const App: React.FC = () => {
           )}
 
           {/* WS 连通指示 */}
-          <span className="hidden md:flex items-center text-[10px] text-text-muted">
+          <span className="hidden xl:flex items-center text-[10px] text-text-muted">
             <Radio
               className={`w-3 h-3 mr-1 ${
                 isWsConnected ? 'text-trade-up animate-pulse' : 'text-trade-warning'
@@ -557,16 +576,26 @@ export const App: React.FC = () => {
           </span>
         </div>
 
-        {/* 右侧：v3.0工具栏、凭证设置、大模型配置、风控与 Panic Button */}
-        <div className="flex items-center space-x-2">
-          {/* v3.0 快捷工具组 */}
-          <div className="flex items-center space-x-1 border-r border-bg-border pr-2">
+        {/* 顶部中央：实时宏观与加密异动情报动态滚动胶囊 */}
+        <div 
+          onClick={() => setIsNewsModalOpen(true)}
+          className="hidden lg:flex items-center space-x-1.5 px-3 py-1 rounded-full bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/25 text-blue-300 text-xs font-medium max-w-[420px] truncate cursor-pointer transition-all hover:scale-[1.01] shadow-sm shadow-blue-500/5"
+          title="点击查看全网宏观情报与突发快讯流"
+        >
+          <span className="w-2 h-2 rounded-full bg-blue-400 animate-ping shrink-0" />
+          <span className="truncate">{latestNewsSnippet}</span>
+        </div>
+
+        {/* 右侧：快捷工具组、凭证设置、大模型配置与 Panic Button */}
+        <div className="flex items-center space-x-1.5">
+          {/* 核心快捷工具组 */}
+          <div className="flex items-center space-x-1 border-r border-bg-border pr-1.5">
             <button
-              onClick={() => setIsBacktestModalOpen(true)}
-              className="flex items-center space-x-1 px-2 py-1 rounded bg-bg-elevated hover:bg-emerald-950/40 text-emerald-400 hover:text-emerald-300 border border-emerald-500/20 text-xs font-medium transition cursor-pointer"
-              title="极速向量化回测沙盒 & 数据湖"
+              onClick={() => setIsTeamModalOpen(true)}
+              className="flex items-center space-x-1 px-2 py-1 rounded-lg bg-gradient-to-r from-indigo-950/60 to-purple-950/60 hover:from-indigo-900/80 hover:to-purple-900/80 text-indigo-300 hover:text-white border border-indigo-500/40 text-xs font-semibold transition cursor-pointer shadow-sm shadow-indigo-500/10"
+              title="AI 决策层员工档案、动态话语权与自主进化看板"
             >
-              <span>📊 回测</span>
+              <span>👥 AI 员工</span>
             </button>
 
             <button
@@ -578,8 +607,16 @@ export const App: React.FC = () => {
             </button>
 
             <button
+              onClick={() => setIsBacktestModalOpen(true)}
+              className="hidden sm:flex items-center space-x-1 px-2 py-1 rounded bg-bg-elevated hover:bg-emerald-950/40 text-emerald-400 hover:text-emerald-300 border border-emerald-500/20 text-xs font-medium transition cursor-pointer"
+              title="极速向量化回测沙盒 & 数据湖"
+            >
+              <span>📊 回测</span>
+            </button>
+
+            <button
               onClick={() => setIsDailyReviewModalOpen(true)}
-              className="flex items-center space-x-1 px-2 py-1 rounded bg-bg-elevated hover:bg-purple-950/40 text-purple-400 hover:text-purple-300 border border-purple-500/20 text-xs font-medium transition cursor-pointer"
+              className="hidden sm:flex items-center space-x-1 px-2 py-1 rounded bg-bg-elevated hover:bg-purple-950/40 text-purple-400 hover:text-purple-300 border border-purple-500/20 text-xs font-medium transition cursor-pointer"
               title="每日自动复盘与避坑知识大脑"
             >
               <span>📖 复盘</span>
@@ -587,23 +624,15 @@ export const App: React.FC = () => {
 
             <button
               onClick={() => setIsConsensusModalOpen(true)}
-              className="flex items-center space-x-1 px-2 py-1 rounded bg-bg-elevated hover:bg-indigo-950/40 text-indigo-400 hover:text-indigo-300 border border-indigo-500/20 text-xs font-medium transition cursor-pointer"
+              className="hidden md:flex items-center space-x-1 px-2 py-1 rounded bg-bg-elevated hover:bg-indigo-950/40 text-indigo-400 hover:text-indigo-300 border border-indigo-500/20 text-xs font-medium transition cursor-pointer"
               title="多智能体博弈对抗辩论与 TG 设置"
             >
               <span>🤖 博弈</span>
             </button>
 
             <button
-              onClick={() => setIsTeamModalOpen(true)}
-              className="flex items-center space-x-1 px-2 py-1 rounded bg-gradient-to-r from-indigo-950/60 to-purple-950/60 hover:from-indigo-900/80 hover:to-purple-900/80 text-indigo-300 hover:text-white border border-indigo-500/40 text-xs font-semibold transition cursor-pointer shadow-sm shadow-indigo-500/10"
-              title="AI 决策层员工档案、动态话语权与自主进化看板"
-            >
-              <span>👥 AI 员工</span>
-            </button>
-
-            <button
               onClick={openStudioModal}
-              className="flex items-center space-x-1 px-2 py-1 rounded bg-bg-elevated hover:bg-cyan-950/40 text-cyan-400 hover:text-cyan-300 border border-cyan-500/30 text-xs font-semibold transition cursor-pointer shadow-sm shadow-cyan-500/10"
+              className="hidden md:flex items-center space-x-1 px-2 py-1 rounded bg-bg-elevated hover:bg-cyan-950/40 text-cyan-400 hover:text-cyan-300 border border-cyan-500/30 text-xs font-semibold transition cursor-pointer shadow-sm shadow-cyan-500/10"
               title="v3.5 AI Quant Studio 策略代码实验室 & Codex Harness"
             >
               <span>✨ 实验室</span>
@@ -613,12 +642,11 @@ export const App: React.FC = () => {
           {/* OKX 凭证配置按钮 */}
           <button
             onClick={() => openSecurityModal('okx')}
-            className="flex items-center space-x-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-bg-elevated hover:bg-bg-border text-text-primary border border-bg-border transition-colors cursor-pointer"
+            className="flex items-center space-x-1 px-2 py-1 rounded-lg text-xs font-medium bg-bg-elevated hover:bg-bg-border text-text-primary border border-bg-border transition-colors cursor-pointer"
             title="点击管理 OKX API Key"
           >
             <Lock className="w-3 h-3 text-trade-up" />
-            <span className="hidden sm:inline">OKX:</span>
-            <span className="font-mono text-trade-up font-bold">
+            <span className="hidden sm:inline font-mono text-trade-up font-bold">
               {apiKeyMasked || '未配置'}
             </span>
           </button>
@@ -626,12 +654,11 @@ export const App: React.FC = () => {
           {/* 大模型配置按钮 */}
           <button
             onClick={() => openSecurityModal('llm')}
-            className="flex items-center space-x-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-bg-elevated hover:bg-bg-border text-text-primary border border-bg-border transition-colors cursor-pointer"
+            className="flex items-center space-x-1 px-2 py-1 rounded-lg text-xs font-medium bg-bg-elevated hover:bg-bg-border text-text-primary border border-bg-border transition-colors cursor-pointer"
             title="点击管理大模型 API 与模型参数"
           >
             <Bot className="w-3 h-3 text-trade-ai" />
-            <span className="hidden sm:inline">AI:</span>
-            <span className="font-mono text-trade-ai font-bold truncate max-w-[90px]">
+            <span className="hidden sm:inline font-mono text-trade-ai font-bold truncate max-w-[80px]">
               {llmConfig?.llm_model || 'DeepSeek'}
             </span>
           </button>

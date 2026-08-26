@@ -700,7 +700,7 @@ export const studioApi = {
 // 14. v3.6 模块：多智能体自适应强化进化与 AI 员工看板 API
 // =============================================================================
 
-import { TeamEvolutionStatus, EvolutionSnapshot } from '../types/evolution';
+import { TeamEvolutionStatus, EvolutionSnapshot, DatasetStats, DatasetExportResult } from '../types/evolution';
 
 export const evolutionApi = {
   getTeamStatus: (): Promise<TeamEvolutionStatus> => {
@@ -718,6 +718,18 @@ export const evolutionApi = {
     return request<TeamEvolutionStatus>('/evolution/reset', {
       method: 'POST',
     });
+  },
+  getDatasetStats: (): Promise<DatasetStats> => {
+    return request<DatasetStats>('/evolution/dataset/stats');
+  },
+  exportDataset: (refineFirst: boolean = false, batchSize: number = 20): Promise<DatasetExportResult> => {
+    return request<DatasetExportResult>('/evolution/dataset/export', {
+      method: 'POST',
+      body: JSON.stringify({ refine_first: refineFirst, batch_size: batchSize }),
+    });
+  },
+  getDownloadUrl: (filename: string): string => {
+    return `/api/v1/evolution/dataset/download/${encodeURIComponent(filename)}`;
   },
 };
 

@@ -59,6 +59,9 @@ export const AutoPilotCard: React.FC = () => {
   const [isResetConfirmOpen, setIsResetConfirmOpen] = useState<boolean>(false);
   const [activeTab, setActiveTab] = useState<'chart' | 'logs'>('chart');
 
+  // 激进程度 (CONSERVATIVE 保守 / BALANCED 稳健 / AGGRESSIVE 激进)
+  const [aggressivenessMode, setAggressivenessMode] = useState<'CONSERVATIVE' | 'BALANCED' | 'AGGRESSIVE'>('BALANCED');
+
   // 配置项
   const [minConfidence, setMinConfidence] = useState<number>(0.70);
   const [autoLeverage, setAutoLeverage] = useState<boolean>(true);
@@ -98,10 +101,17 @@ export const AutoPilotCard: React.FC = () => {
           setAutoPilotStatus(statusData.value);
           setIsRunning(statusData.value.is_running);
 
+          if (statusData.value.aggressiveness_mode) {
+            setAggressivenessMode(statusData.value.aggressiveness_mode as any);
+          }
+
           // 仅在初次加载或配置抽屉未打开时同步到本地表单，防止覆盖用户正在输入的修改
           if (!isInitialLoadedRef.current || !isConfigOpenRef.current) {
             setMinConfidence(statusData.value.min_confidence || 0.70);
             setAutoLeverage(statusData.value.auto_leverage_enabled ?? true);
+            if (statusData.value.aggressiveness_mode) {
+              setAggressivenessMode(statusData.value.aggressiveness_mode as any);
+            }
             if (statusData.value.focus_mode) {
               setSelectedFocusMode(statusData.value.focus_mode as any);
             }
@@ -195,6 +205,7 @@ export const AutoPilotCard: React.FC = () => {
         const parsedFloor = typeof stopLossEquityFloor === 'number' && stopLossEquityFloor > 0 ? stopLossEquityFloor : undefined;
         const parsedMaxLoss = typeof maxLossLimitUsdt === 'number' && maxLossLimitUsdt > 0 ? maxLossLimitUsdt : undefined;
         const res = await autoPilotApi.start({
+          aggressiveness_mode: aggressivenessMode,
           min_confidence: minConfidence,
           auto_leverage_enabled: autoLeverage,
           symbol: activeSymbol,
@@ -238,12 +249,34 @@ export const AutoPilotCard: React.FC = () => {
     }
   };
 
+  // 快速切换激进程度
+  const handleSelectAggressivenessMode = async (mode: 'CONSERVATIVE' | 'BALANCED' | 'AGGRESSIVE') => {
+    setAggressivenessMode(mode);
+    if (mode === 'CONSERVATIVE') {
+      setMinConfidence(0.80);
+      setMaxScaleLayers(1);
+    } else if (mode === 'AGGRESSIVE') {
+      setMinConfidence(0.60);
+      setMaxScaleLayers(5);
+    } else {
+      setMinConfidence(0.70);
+      setMaxScaleLayers(3);
+    }
+    try {
+      const res = await autoPilotApi.updateConfig({ aggressiveness_mode: mode });
+      setAutoPilotStatus(res);
+    } catch (err) {
+      console.warn('更新激进程度异常:', err);
+    }
+  };
+
   // 保存策略配置
   const handleSaveConfig = async () => {
     try {
       const parsedFloor = typeof stopLossEquityFloor === 'number' && stopLossEquityFloor > 0 ? stopLossEquityFloor : undefined;
       const parsedMaxLoss = typeof maxLossLimitUsdt === 'number' && maxLossLimitUsdt > 0 ? maxLossLimitUsdt : undefined;
       const res = await autoPilotApi.updateConfig({
+        aggressiveness_mode: aggressivenessMode,
         min_confidence: minConfidence,
         auto_leverage_enabled: autoLeverage,
         symbol: activeSymbol,
@@ -483,7 +516,52 @@ export const AutoPilotCard: React.FC = () => {
         </div>
       </div>
 
-      {/* 2. 专注模式与加仓状态指示条 */}
+      {/* 2. 激进程度三档切换器 (保守 / 稳健 / 激进) */}
+      <div className="flex items-center justify-between px-2 py-1 rounded-lg bg-bg-elevated/70 border border-bg-border text-xs">
+        <span className="text-[11px] font-semibold text-text-secondary flex items-center space-x-1">
+          <span>量化风格:</span>
+        </span>
+        <div className="flex items-center space-x-1 bg-bg-secondary p-0.5 rounded-md border border-bg-border/60">
+          <button
+            type="button"
+            onClick={() => handleSelectAggressivenessMode('CONSERVATIVE')}
+            className={`px-2 py-0.5 rounded text-[10px] font-bold transition-all cursor-pointer ${
+              aggressivenessMode === 'CONSERVATIVE'
+                ? 'bg-blue-500/25 text-blue-400 border border-blue-500/40 shadow-sm'
+                : 'text-text-muted hover:text-text-primary'
+            }`}
+            title="🛡️ 保守稳健：置信度 ≥80%，低杠杆防守，单笔风险0.5%"
+          >
+            🛡️ 保守
+          </button>
+          <button
+            type="button"
+            onClick={() => handleSelectAggressivenessMode('BALANCED')}
+            className={`px-2 py-0.5 rounded text-[10px] font-bold transition-all cursor-pointer ${
+              aggressivenessMode === 'BALANCED'
+                ? 'bg-emerald-500/25 text-emerald-400 border border-emerald-500/40 shadow-sm'
+                : 'text-text-muted hover:text-text-primary'
+            }`}
+            title="⚖️ 标准稳健：置信度 ≥70%，经典量化，单笔风险1.0%"
+          >
+            ⚖️ 稳健
+          </button>
+          <button
+            type="button"
+            onClick={() => handleSelectAggressivenessMode('AGGRESSIVE')}
+            className={`px-2 py-0.5 rounded text-[10px] font-bold transition-all cursor-pointer ${
+              aggressivenessMode === 'AGGRESSIVE'
+                ? 'bg-amber-500/25 text-amber-400 border border-amber-500/40 shadow-sm'
+                : 'text-text-muted hover:text-text-primary'
+            }`}
+            title="⚡ 积极进攻：置信度 ≥60%，动量突破，单笔风险2.0%"
+          >
+            ⚡ 激进
+          </button>
+        </div>
+      </div>
+
+      {/* 3. 专注模式与加仓状态指示条 */}
       <div className="p-2 rounded-lg bg-bg-elevated/60 border border-bg-border space-y-1.5 text-xs">
         <div className="flex items-center justify-between text-[11px] text-text-muted font-medium">
           <span className="flex items-center space-x-1 text-trade-ai font-bold">
