@@ -18,10 +18,13 @@ import {
   ExternalLink,
   Cpu,
   Check,
-  AlertCircle
+  AlertCircle,
+  Stethoscope,
+  BookOpen,
+  ArrowRight
 } from 'lucide-react';
 import { evolutionApi } from '../services/api';
-import { AgentEmployee, TeamEvolutionStatus, DatasetStats, DatasetExportResult } from '../types/evolution';
+import { AgentEmployee, TeamEvolutionStatus, DatasetStats, DatasetExportResult, TeamDiagnosisReport } from '../types/evolution';
 
 interface AgentTeamModalProps {
   isOpen: boolean;
@@ -36,10 +39,11 @@ export const AgentTeamModal: React.FC<AgentTeamModalProps> = ({
   const [datasetStats, setDatasetStats] = useState<DatasetStats | null>(null);
   const [loading, setLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
+  const [diagnosisLoading, setDiagnosisLoading] = useState(false);
   const [exportLoading, setExportLoading] = useState(false);
   const [refineFirst, setRefineFirst] = useState(true);
   const [exportResult, setExportResult] = useState<DatasetExportResult | null>(null);
-  const [activeTab, setActiveTab] = useState<'employees' | 'intern' | 'rules' | 'history'>('employees');
+  const [activeTab, setActiveTab] = useState<'employees' | 'intern' | 'rules' | 'diagnosis'>('employees');
   const [lastMessage, setLastMessage] = useState<string | null>(null);
 
   useEffect(() => {
@@ -67,6 +71,22 @@ export const AgentTeamModal: React.FC<AgentTeamModalProps> = ({
       setDatasetStats(res);
     } catch (e) {
       console.error('加载数据集统计失败', e);
+    }
+  };
+
+  const handleTriggerDiagnosis = async () => {
+    try {
+      setDiagnosisLoading(true);
+      setLastMessage('🧠 正在调用大模型量化总监对 6 位 AI 员工进行失败案例反思诊断与战法重塑...');
+      const res = await evolutionApi.triggerDiagnosis();
+      setTeamData(res.team_status);
+      setActiveTab('diagnosis');
+      setLastMessage('🎉 AI 大模型自驱体检与演进完成！已为各专家注入专属避坑口诀并生成新版本快照。');
+      setTimeout(() => setLastMessage(null), 6000);
+    } catch (e) {
+      alert('大模型自驱诊断失败: ' + (e as Error).message);
+    } finally {
+      setDiagnosisLoading(false);
     }
   };
 
@@ -118,6 +138,7 @@ export const AgentTeamModal: React.FC<AgentTeamModalProps> = ({
   if (!isOpen) return null;
 
   const intern = teamData?.intern_profile;
+  const diagReport = teamData?.latest_diagnosis_report;
 
   const renderIcon = (iconName: string) => {
     switch (iconName) {
@@ -151,21 +172,29 @@ export const AgentTeamModal: React.FC<AgentTeamModalProps> = ({
             <div>
               <div className="flex items-center gap-2">
                 <h2 className="text-lg font-bold text-white tracking-wide">
-                  AI 决策员工团队 & 自适应演进看板
+                  AI 决策员工团队 & 自驱演进中枢
                 </h2>
                 <span className="rounded-full bg-emerald-500/10 border border-emerald-500/30 px-2.5 py-0.5 text-xs font-semibold text-emerald-400 flex items-center gap-1">
                   <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-                  实盘自主演进中
+                  大模型自治演进就绪
                 </span>
               </div>
               <p className="text-xs text-gray-400 mt-0.5">
-                决策层共 {teamData?.team_members.length || 5} 位专家员工 + 🐣 专属实习生微调演进插槽
+                决策层共 {teamData?.team_members.length || 6} 位专家员工 • 每日大模型盘后反思体检与战法自适应迭代
               </p>
             </div>
           </div>
 
-          {/* 状态与关闭 */}
+          {/* 右侧操作按钮 */}
           <div className="flex items-center gap-3">
+            <button
+              onClick={handleTriggerDiagnosis}
+              disabled={diagnosisLoading}
+              className="rounded-lg bg-gradient-to-r from-purple-600 to-indigo-600 px-3.5 py-1.5 text-xs font-bold text-white shadow-lg hover:from-purple-500 hover:to-indigo-500 transition flex items-center gap-1.5 disabled:opacity-50"
+            >
+              <Stethoscope className={`h-4 w-4 ${diagnosisLoading ? 'animate-spin' : ''}`} />
+              {diagnosisLoading ? '大模型诊断中...' : '🤖 AI 自驱体检与演进'}
+            </button>
             <button
               onClick={() => { loadTeamStatus(); loadDatasetStats(); }}
               disabled={loading}
@@ -185,9 +214,9 @@ export const AgentTeamModal: React.FC<AgentTeamModalProps> = ({
 
         {/* 提示消息条 */}
         {lastMessage && (
-          <div className="bg-indigo-950/60 border-b border-indigo-800/40 px-6 py-2 text-xs text-indigo-300 flex items-center justify-between">
+          <div className="bg-indigo-950/60 border-b border-indigo-800/40 px-6 py-2 text-xs text-indigo-300 flex items-center justify-between animate-in fade-in">
             <span className="flex items-center gap-2">
-              <Sparkles className="h-4 w-4 text-amber-400" />
+              <Sparkles className="h-4 w-4 text-amber-400 flex-shrink-0" />
               {lastMessage}
             </span>
             <button onClick={() => setLastMessage(null)} className="text-indigo-400 hover:text-white">
@@ -202,7 +231,7 @@ export const AgentTeamModal: React.FC<AgentTeamModalProps> = ({
             onClick={() => setActiveTab('employees')}
             className={`py-3 text-sm font-medium border-b-2 flex items-center gap-2 transition ${
               activeTab === 'employees'
-                ? 'border-indigo-500 text-indigo-400'
+                ? 'border-indigo-500 text-indigo-400 font-bold'
                 : 'border-transparent text-gray-400 hover:text-white'
             }`}
           >
@@ -210,25 +239,36 @@ export const AgentTeamModal: React.FC<AgentTeamModalProps> = ({
             决策层员工花名册 (6专家话语权)
           </button>
           <button
-            onClick={() => setActiveTab('intern')}
+            onClick={() => setActiveTab('diagnosis')}
             className={`py-3 text-sm font-medium border-b-2 flex items-center gap-2 transition ${
-              activeTab === 'intern'
+              activeTab === 'diagnosis'
                 ? 'border-purple-500 text-purple-400 font-bold'
                 : 'border-transparent text-gray-400 hover:text-purple-300'
             }`}
           >
-            <GraduationCap className="h-4 w-4 text-purple-400" />
-            🐣 实习生微调与数据中心 (Colab / Ollama)
+            <Stethoscope className="h-4 w-4 text-purple-400" />
+            📋 大模型诊断反思报告 {diagReport ? '(最新)' : ''}
+          </button>
+          <button
+            onClick={() => setActiveTab('intern')}
+            className={`py-3 text-sm font-medium border-b-2 flex items-center gap-2 transition ${
+              activeTab === 'intern'
+                ? 'border-indigo-500 text-indigo-400 font-bold'
+                : 'border-transparent text-gray-400 hover:text-indigo-300'
+            }`}
+          >
+            <GraduationCap className="h-4 w-4 text-indigo-400" />
+            🐣 实习生微调与数据中心
           </button>
           <button
             onClick={() => setActiveTab('rules')}
             className={`py-3 text-sm font-medium border-b-2 flex items-center gap-2 transition ${
               activeTab === 'rules'
-                ? 'border-indigo-500 text-indigo-400'
+                ? 'border-indigo-500 text-indigo-400 font-bold'
                 : 'border-transparent text-gray-400 hover:text-white'
             }`}
           >
-            <Sparkles className="h-4 w-4" />
+            <Sparkles className="h-4 w-4 text-amber-400" />
             自主避坑秘籍 ({teamData?.recent_learned_rules.length || 0})
           </button>
         </div>
@@ -248,20 +288,21 @@ export const AgentTeamModal: React.FC<AgentTeamModalProps> = ({
                 </div>
 
                 <div className="rounded-xl border border-gray-800 bg-[#161b22] p-4">
+                  <div className="text-xs text-gray-400">大模型反思驱动</div>
+                  <div className="text-base font-bold text-purple-400 flex items-center gap-1.5 mt-1">
+                    <Sparkles className="h-4 w-4" />
+                    AI 投资总监在线
+                  </div>
+                  <div className="text-[11px] text-gray-500 mt-1">每日盘后自动问诊低胜率角色</div>
+                </div>
+
+                <div className="rounded-xl border border-gray-800 bg-[#161b22] p-4">
                   <div className="text-xs text-gray-400">防退化安全保护</div>
                   <div className="text-base font-bold text-emerald-400 flex items-center gap-1.5 mt-1">
                     <CheckCircle2 className="h-4 w-4" />
                     {teamData?.harness_baseline_status === 'STABLE' ? '平稳运行中' : '安全兜底已激活'}
                   </div>
-                  <div className="text-[11px] text-gray-500 mt-1">500+ 历史极端行情防退化守护</div>
-                </div>
-
-                <div className="rounded-xl border border-gray-800 bg-[#161b22] p-4">
-                  <div className="text-xs text-gray-400">话语权分配机制</div>
-                  <div className="text-base font-bold text-amber-300 mt-1">
-                    Softmax 平滑动态赋权
-                  </div>
-                  <div className="text-[11px] text-gray-500 mt-1">10% ~ 40% 防单一专家垄断</div>
+                  <div className="text-[11px] text-gray-500 mt-1">500+ 历史行情防退化守护</div>
                 </div>
 
                 <div className="rounded-xl border border-gray-800 bg-[#161b22] p-4 flex flex-col justify-between">
@@ -290,7 +331,8 @@ export const AgentTeamModal: React.FC<AgentTeamModalProps> = ({
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {teamData?.team_members.map((emp: AgentEmployee) => {
                   const weight = emp.weight_percent;
-                  const isTop = weight >= 28;
+                  const isTop = weight >= 25;
+                  const learnedRules = emp.learned_rules || [];
                   return (
                     <div
                       key={emp.role_id}
@@ -368,6 +410,22 @@ export const AgentTeamModal: React.FC<AgentTeamModalProps> = ({
                         <p className="text-xs text-gray-300 mt-3 leading-relaxed">
                           💡 <span className="text-gray-400">核心专长:</span> {emp.specialty_description}
                         </p>
+
+                        {/* 角色专属避坑口诀标签 */}
+                        {learnedRules.length > 0 && (
+                          <div className="mt-3 bg-purple-950/30 border border-purple-800/40 rounded-lg p-2.5 space-y-1.5">
+                            <div className="text-[11px] font-bold text-purple-300 flex items-center gap-1">
+                              <BookOpen className="h-3 w-3 text-purple-400" />
+                              大模型注入的专属战法口诀:
+                            </div>
+                            {learnedRules.map((rule, rIdx) => (
+                              <div key={rIdx} className="text-[11px] text-purple-200/90 leading-tight flex items-start gap-1">
+                                <span className="text-purple-400 font-mono">▸</span>
+                                <span>{rule}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
                       </div>
 
                       {emp.recent_achievement && (
@@ -381,6 +439,138 @@ export const AgentTeamModal: React.FC<AgentTeamModalProps> = ({
                 })}
               </div>
             </>
+          )}
+
+          {/* 大模型诊断反思报告 Tab */}
+          {activeTab === 'diagnosis' && (
+            <div className="space-y-6">
+              {diagReport ? (
+                <>
+                  {/* 整体宏观与协同诊断 */}
+                  <div className="rounded-2xl border border-purple-800/40 bg-gradient-to-br from-[#161b22] to-purple-950/20 p-6 space-y-4">
+                    <div className="flex items-center justify-between border-b border-gray-800/80 pb-3">
+                      <div className="flex items-center gap-2">
+                        <Stethoscope className="h-5 w-5 text-purple-400" />
+                        <h3 className="text-base font-bold text-white">
+                          大模型量化投资总监诊断长文 ({diagReport.epoch_id})
+                        </h3>
+                      </div>
+                      <span className="text-xs font-mono text-gray-400">
+                        诊断时间: {new Date(diagReport.diagnosis_time).toLocaleString()}
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+                      <div className="bg-[#0d1117]/80 rounded-xl p-4 border border-gray-800">
+                        <div className="font-bold text-indigo-300 mb-1 flex items-center gap-1.5">
+                          <Users className="h-4 w-4 text-indigo-400" />
+                          团队协同运行评估:
+                        </div>
+                        <p className="text-gray-300 leading-relaxed">{diagReport.team_overall_summary}</p>
+                      </div>
+
+                      <div className="bg-[#0d1117]/80 rounded-xl p-4 border border-gray-800">
+                        <div className="font-bold text-sky-300 mb-1 flex items-center gap-1.5">
+                          <Globe className="h-4 w-4 text-sky-400" />
+                          盘面与宏观环境观察:
+                        </div>
+                        <p className="text-gray-300 leading-relaxed">{diagReport.market_regime_observation}</p>
+                      </div>
+                    </div>
+
+                    <div className="bg-[#0d1117]/80 rounded-xl p-4 border border-purple-900/40 text-xs">
+                      <div className="font-bold text-purple-300 mb-1 flex items-center gap-1.5">
+                        <Sparkles className="h-4 w-4 text-purple-400" />
+                        下阶段共识决策与风控改进方案:
+                      </div>
+                      <p className="text-gray-300 leading-relaxed">{diagReport.consensus_improvement_plan}</p>
+                    </div>
+                  </div>
+
+                  {/* 6 位专家的独立问诊与战法重塑 */}
+                  <div className="space-y-4">
+                    <h4 className="text-sm font-bold text-gray-200 flex items-center gap-2">
+                      <BookOpen className="h-4 w-4 text-indigo-400" />
+                      专家个体失误剖析与战法重塑详情
+                    </h4>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {diagReport.role_diagnoses.map((rd) => (
+                        <div
+                          key={rd.role_id}
+                          className={`rounded-xl border p-4 text-xs space-y-3 ${
+                            rd.is_underperforming
+                              ? 'border-amber-500/40 bg-amber-950/10'
+                              : 'border-gray-800 bg-[#161b22]'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between">
+                            <span className="font-bold text-white text-sm flex items-center gap-1.5">
+                              {rd.role_name}
+                              <span className="text-[10px] text-gray-400 font-mono">({rd.role_id})</span>
+                            </span>
+                            {rd.is_underperforming ? (
+                              <span className="rounded bg-amber-500/20 text-amber-300 border border-amber-500/30 px-2 py-0.5 text-[10px] font-bold">
+                                ⚠️ 重点问诊调优
+                              </span>
+                            ) : (
+                              <span className="rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 px-2 py-0.5 text-[10px] font-bold">
+                                ✅ 状态平稳
+                              </span>
+                            )}
+                          </div>
+
+                          <div className="bg-[#0d1117] rounded-lg p-2.5 border border-gray-800/80">
+                            <div className="text-[11px] text-gray-400 mb-1">🔍 盲点与病理剖析:</div>
+                            <p className="text-gray-300 leading-relaxed">{rd.core_flaw_analysis}</p>
+                          </div>
+
+                          {rd.suggested_learned_rules.length > 0 && (
+                            <div className="bg-purple-950/30 rounded-lg p-2.5 border border-purple-800/30">
+                              <div className="text-[11px] text-purple-300 font-bold mb-1 flex items-center gap-1">
+                                <Sparkles className="h-3 w-3 text-purple-400" />
+                                本轮新注入的专属避坑口诀:
+                              </div>
+                              <ul className="space-y-1">
+                                {rd.suggested_learned_rules.map((rule, idx) => (
+                                  <li key={idx} className="text-purple-200 text-[11px] flex items-start gap-1">
+                                    <span className="text-purple-400">✓</span>
+                                    <span>{rule}</span>
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+
+                          {rd.parameter_tuning && (
+                            <div className="text-[10px] text-gray-400 bg-gray-900/60 rounded px-2 py-1 font-mono">
+                              ⚙️ 建议因子微调: {JSON.stringify(rd.parameter_tuning)}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <div className="rounded-2xl border border-gray-800 bg-[#161b22] p-12 text-center space-y-4">
+                  <Stethoscope className="h-12 w-12 text-purple-400 mx-auto opacity-60" />
+                  <div>
+                    <h4 className="text-base font-bold text-white">暂未生成大模型自驱诊断报告</h4>
+                    <p className="text-xs text-gray-400 mt-1 max-w-md mx-auto">
+                      系统会在每日盘后自动反思体检，您也可以随时点击右上角的<strong>【🤖 AI 自驱体检与演进】</strong>按钮，立即调用大模型为团队 6 位专家进行深度问诊！
+                    </p>
+                  </div>
+                  <button
+                    onClick={handleTriggerDiagnosis}
+                    disabled={diagnosisLoading}
+                    className="rounded-lg bg-purple-600 px-4 py-2 text-xs font-bold text-white shadow hover:bg-purple-500 transition"
+                  >
+                    立即进行一次 AI 团队全身体检
+                  </button>
+                </div>
+              )}
+            </div>
           )}
 
           {activeTab === 'intern' && (
@@ -400,130 +590,49 @@ export const AgentTeamModal: React.FC<AgentTeamModalProps> = ({
                   badgeText = '⚡ 已连接就绪 (等待信号)';
                   badgeClass = 'bg-cyan-500/20 border-cyan-500/40 text-cyan-300';
                 } else if (isPromoted) {
-                  badgeText = '👑 考核全达标 (随时可转正)';
+                  badgeText = '👑 具备正式员工实力';
                   badgeClass = 'bg-emerald-500/20 border-emerald-500/40 text-emerald-300';
                 }
 
                 return (
-                  <div className="rounded-2xl border border-purple-500/40 bg-gradient-to-br from-[#161b22] to-purple-950/20 p-6 shadow-xl space-y-5">
-                    <div className="flex items-start justify-between">
-                      <div className="flex items-center gap-4">
-                        <div className={`rounded-2xl p-3.5 shadow-inner border ${
-                          isNotConfigured ? 'bg-gray-800/60 border-gray-700 text-gray-500' : 'bg-purple-600/20 border-purple-500/40 text-purple-300'
-                        }`}>
-                          <GraduationCap className="h-8 w-8" />
+                  <div className="rounded-2xl border border-purple-800/40 bg-gradient-to-br from-[#161b22] to-purple-950/20 p-6 space-y-5">
+                    <div className="flex items-center justify-between border-b border-gray-800 pb-4">
+                      <div className="flex items-center gap-3.5">
+                        <div className="rounded-2xl bg-purple-600/20 border border-purple-500/40 p-3 text-purple-300 text-2xl shadow-inner">
+                          {intern?.avatar_icon || '🐣'}
                         </div>
                         <div>
                           <div className="flex items-center gap-2">
-                            <h3 className="text-lg font-bold text-white">
-                              {intern?.nickname || '🐣 小狗量化实习生'}
+                            <h3 className="text-base font-bold text-white">
+                              {intern?.nickname || '量化实习生模型'}
                             </h3>
-                            <span className={`rounded-full border px-2.5 py-0.5 text-xs font-bold ${badgeClass}`}>
+                            <span className={`rounded-full border px-2.5 py-0.5 text-[11px] font-bold ${badgeClass}`}>
                               {badgeText}
                             </span>
-                            <span className="rounded bg-gray-800 px-2 py-0.5 text-xs font-mono text-gray-400">
-                              {intern?.model_name || 'okx-dog-intern'}
-                            </span>
                           </div>
-                          <p className="text-xs text-purple-200/70 mt-1">
-                            {intern?.recent_feedback || '基于真实行情回放与 6 专家博弈提炼训练的开源专精小模型，通过 Ollama 即插即用接入'}
+                          <p className="text-xs text-gray-400 mt-1">
+                            当前挂载模型: <strong className="text-indigo-300 font-mono">{intern?.model_name || 'deepseek-r1:8b (本地/Colab)'}</strong>
                           </p>
                         </div>
                       </div>
-
-                      <div className="text-right">
-                        <span className="text-xs text-gray-400">服务引擎</span>
-                        <div className="text-sm font-bold font-mono flex items-center gap-1 mt-0.5 justify-end">
-                          <Cpu className={`h-4 w-4 ${isNotConfigured ? 'text-gray-500' : 'text-purple-400'}`} />
-                          <span className={isNotConfigured ? 'text-gray-400' : 'text-purple-300'}>
-                            {isNotConfigured ? '未激活 (.env 待配置)' : (intern?.provider?.toUpperCase() || 'OLLAMA (本地)')}
-                          </span>
-                        </div>
-                      </div>
                     </div>
 
-                    {/* 未部署时的引导横幅 */}
-                    {isNotConfigured && (
-                      <div className="rounded-xl border border-indigo-800/40 bg-indigo-950/30 p-3.5 text-xs text-indigo-300 flex items-start gap-2.5">
-                        <Sparkles className="h-4 w-4 text-amber-400 flex-shrink-0 mt-0.5" />
-                        <div className="leading-relaxed">
-                          <strong>💡 实习生接入步骤</strong>：当前尚未配置本地微调模型。您只需在下方点击<strong>「一键生成并导出训练集」</strong>并在 Google Colab 微调生成 GGUF 模型后，在本地执行 <code className="bg-black/40 px-1.5 py-0.5 rounded text-amber-300 font-mono">ollama create okx-dog-intern -f Modelfile</code> 并在 <code className="bg-black/40 px-1.5 py-0.5 rounded text-amber-300 font-mono">.env</code> 配置 <code className="bg-black/40 px-1.5 py-0.5 rounded text-amber-300 font-mono">INTERN_ENABLED=true</code> 即可点亮激活！
-                        </div>
-                      </div>
-                    )}
-
-                    {/* 实习生战绩指标 */}
                     <div className="grid grid-cols-4 gap-3">
-                      <div className="rounded-xl border border-gray-800 bg-[#0d1117]/80 p-3.5 text-center">
-                        <div className="text-xs text-gray-400">影子推演实操</div>
-                        <div className="text-xl font-bold font-mono text-white mt-1">
-                          {intern?.total_trials || 0} <span className="text-xs text-gray-400">次</span>
-                        </div>
-                        <div className="text-[10px] text-gray-500 mt-0.5">主链路零阻塞并发推演</div>
+                      <div className="rounded-xl border border-gray-800 bg-[#0d1117] p-3 text-center">
+                        <div className="text-[11px] text-gray-400">影子试炼次数</div>
+                        <div className="text-base font-bold text-white font-mono mt-0.5">{intern?.total_trials || 0} 次</div>
                       </div>
-
-                      <div className="rounded-xl border border-gray-800 bg-[#0d1117]/80 p-3.5 text-center">
-                        <div className="text-xs text-gray-400">与老专家一致率</div>
-                        <div className="text-xl font-bold font-mono text-indigo-400 mt-1">
-                          {isNotConfigured ? '--' : `${((intern?.agreement_rate || 0) * 100).toFixed(1)}%`}
-                        </div>
-                        <div className="text-[10px] text-gray-500 mt-0.5">方向与点位拟合度</div>
+                      <div className="rounded-xl border border-gray-800 bg-[#0d1117] p-3 text-center">
+                        <div className="text-[11px] text-gray-400">与冠军共识一致率</div>
+                        <div className="text-base font-bold text-purple-400 font-mono mt-0.5">{((intern?.agreement_rate || 0) * 100).toFixed(0)}%</div>
                       </div>
-
-                      <div className="rounded-xl border border-gray-800 bg-[#0d1117]/80 p-3.5 text-center">
-                        <div className="text-xs text-gray-400">虚拟实盘 7 日胜率</div>
-                        <div className="text-xl font-bold font-mono text-emerald-400 mt-1">
-                          {isNotConfigured ? '--' : `${((intern?.virtual_win_rate_7d || 0) * 100).toFixed(1)}%`}
-                        </div>
-                        <div className="text-[10px] text-gray-500 mt-0.5">
-                          {isNotConfigured ? '待开始带训' : `${intern?.virtual_wins || 0} 胜 / ${intern?.virtual_losses || 0} 负`}
-                        </div>
+                      <div className="rounded-xl border border-gray-800 bg-[#0d1117] p-3 text-center">
+                        <div className="text-[11px] text-gray-400">虚拟7日胜率</div>
+                        <div className="text-base font-bold text-emerald-400 font-mono mt-0.5">{((intern?.virtual_win_rate_7d || 0) * 100).toFixed(0)}%</div>
                       </div>
-
-                      <div className="rounded-xl border border-gray-800 bg-[#0d1117]/80 p-3.5 text-center">
-                        <div className="text-xs text-gray-400">JSON 契约合规率</div>
-                        <div className="text-xl font-bold font-mono text-purple-400 mt-1">
-                          {isNotConfigured ? '--' : `${((intern?.contract_compliance_rate || 1) * 100).toFixed(0)}%`}
-                        </div>
-                        <div className="text-[10px] text-gray-500 mt-0.5">AI_SCHEMA 严格对齐</div>
-                      </div>
-                    </div>
-
-                    {/* 转正考核清单 */}
-                    <div className="rounded-xl border border-purple-900/40 bg-purple-950/20 p-4">
-                      <div className="flex items-center justify-between">
-                        <h4 className="text-xs font-bold text-purple-200 flex items-center gap-1.5">
-                          <Sparkles className="h-3.5 w-3.5 text-amber-400" />
-                          资深量化交易员转正考核门禁 (Promotion Readiness)
-                        </h4>
-                        <span className={`text-xs font-bold px-2 py-0.5 rounded ${
-                          isNotConfigured
-                            ? 'bg-gray-800 text-gray-400'
-                            : intern?.is_promotion_ready
-                            ? 'bg-emerald-500/20 text-emerald-300'
-                            : 'bg-amber-500/20 text-amber-300'
-                        }`}>
-                          {isNotConfigured
-                            ? '💤 待激活接入'
-                            : intern?.is_promotion_ready
-                            ? '🎉 考核全达标 (随时可晋升)'
-                            : '⏳ 带训演进中'}
-                        </span>
-                      </div>
-
-                      <div className="grid grid-cols-5 gap-2 mt-3 text-xs">
-                        {intern?.promotion_checklist && Object.entries(intern.promotion_checklist).map(([key, passed]) => (
-                          <div key={key} className={`rounded-lg border px-2.5 py-1.5 flex items-center gap-1.5 ${
-                            isNotConfigured
-                              ? 'border-gray-800 bg-gray-900/60 text-gray-500'
-                              : passed
-                              ? 'border-emerald-500/30 bg-emerald-950/20 text-emerald-300'
-                              : 'border-gray-800 bg-gray-900 text-gray-500'
-                          }`}>
-                            {passed && !isNotConfigured ? <Check className="h-3 w-3 text-emerald-400 flex-shrink-0" /> : <AlertCircle className="h-3 w-3 text-gray-600 flex-shrink-0" />}
-                            <span className="truncate">{key}</span>
-                          </div>
-                        ))}
+                      <div className="rounded-xl border border-gray-800 bg-[#0d1117] p-3 text-center">
+                        <div className="text-[11px] text-gray-400">契约Schema合规率</div>
+                        <div className="text-base font-bold text-cyan-400 font-mono mt-0.5">{((intern?.contract_compliance_rate || 0) * 100).toFixed(0)}%</div>
                       </div>
                     </div>
                   </div>
@@ -631,10 +740,10 @@ export const AgentTeamModal: React.FC<AgentTeamModalProps> = ({
               <div className="rounded-xl border border-indigo-800/30 bg-indigo-950/20 p-4">
                 <h4 className="text-sm font-bold text-indigo-300 flex items-center gap-2">
                   <Sparkles className="h-4 w-4 text-amber-400" />
-                  智能体自主学习与前车之鉴知识库
+                  智能体自主学习与全局前车之鉴知识库
                 </h4>
                 <p className="text-xs text-gray-400 mt-1">
-                  系统在每一次平仓或遭遇回踩后，自动由 Harness 沙箱提炼总结出的实战避坑口诀。这些规则会在后续的每次开仓决策前强制动态注入，严防犯同样的错误。
+                  系统在每一次平仓、复盘或大模型反思问诊后，自动总结沉淀出的通用避坑口诀。这些规则会在后续的决策前强制动态注入，严防重复犯错。
                 </p>
               </div>
 
@@ -652,7 +761,7 @@ export const AgentTeamModal: React.FC<AgentTeamModalProps> = ({
                         {rule}
                       </h5>
                       <div className="flex items-center gap-4 mt-2 text-[11px] text-gray-500">
-                        <span>🛡️ 已通过 500+ 历史极端行情防退化测试</span>
+                        <span>🛡️ 已通过历史极端行情防退化守护</span>
                         <span>•</span>
                         <span className="text-emerald-400">状态: 全天候生效中</span>
                       </div>
@@ -668,7 +777,7 @@ export const AgentTeamModal: React.FC<AgentTeamModalProps> = ({
         <div className="border-t border-gray-800 bg-[#161b22] px-6 py-3 text-xs text-gray-500 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <span className="h-2 w-2 rounded-full bg-emerald-400"></span>
-            <span>OKX-Dog 量化智能体自适应演进与模型微调套件 • 零金融门槛全景交互</span>
+            <span>OKX-Dog 量化智能体大模型自驱演进系统 • 零金融门槛全景自治</span>
           </div>
           <span className="font-mono">
             更新时间: {teamData?.last_updated_time ? new Date(teamData.last_updated_time).toLocaleTimeString() : '--'}

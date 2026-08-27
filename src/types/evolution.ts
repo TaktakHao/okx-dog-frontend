@@ -21,6 +21,25 @@ export interface AgentEmployee {
   defended_crises_count: number;
   specialty_description: string;
   recent_achievement?: string;
+  learned_rules?: string[];
+}
+
+export interface RoleDiagnosisResult {
+  role_id: string;
+  role_name: string;
+  is_underperforming: boolean;
+  core_flaw_analysis: string;
+  suggested_learned_rules: string[];
+  parameter_tuning?: Record<string, any>;
+}
+
+export interface TeamDiagnosisReport {
+  epoch_id: string;
+  diagnosis_time: number;
+  team_overall_summary: string;
+  market_regime_observation: string;
+  role_diagnoses: RoleDiagnosisResult[];
+  consensus_improvement_plan: string;
 }
 
 export interface InternProfile {
@@ -76,6 +95,7 @@ export interface TeamEvolutionStatus {
   last_updated_time: number;
   recent_learned_rules: string[];
   intern_profile?: InternProfile;
+  latest_diagnosis_report?: TeamDiagnosisReport | null;
 }
 
 export interface EvolutionSnapshot {
