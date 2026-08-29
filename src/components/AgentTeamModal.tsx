@@ -16,15 +16,11 @@ import {
   Download,
   FileJson,
   ExternalLink,
-  Cpu,
-  Check,
-  AlertCircle,
   Stethoscope,
-  BookOpen,
-  ArrowRight
+  BookOpen
 } from 'lucide-react';
 import { evolutionApi } from '../services/api';
-import { AgentEmployee, TeamEvolutionStatus, DatasetStats, DatasetExportResult, TeamDiagnosisReport } from '../types/evolution';
+import { AgentEmployee, TeamEvolutionStatus, DatasetStats, DatasetExportResult } from '../types/evolution';
 
 interface AgentTeamModalProps {
   isOpen: boolean;
@@ -41,7 +37,7 @@ export const AgentTeamModal: React.FC<AgentTeamModalProps> = ({
   const [actionLoading, setActionLoading] = useState(false);
   const [diagnosisLoading, setDiagnosisLoading] = useState(false);
   const [exportLoading, setExportLoading] = useState(false);
-  const [refineFirst, setRefineFirst] = useState(true);
+  const [refineFirst, setRefineFirst] = useState(false);
   const [exportResult, setExportResult] = useState<DatasetExportResult | null>(null);
   const [activeTab, setActiveTab] = useState<'employees' | 'intern' | 'rules' | 'diagnosis'>('employees');
   const [lastMessage, setLastMessage] = useState<string | null>(null);
