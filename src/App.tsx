@@ -22,6 +22,7 @@ import {
   Coins,
   AlertTriangle,
   Search,
+  CheckCircle2,
 } from 'lucide-react';
 import { useAppStore } from './store/useAppStore';
 import { wsService } from './services/websocket';
@@ -35,6 +36,7 @@ import { DailyReviewModal } from './components/DailyReviewModal';
 import { ConsensusModal } from './components/ConsensusModal';
 import { QuantStudioModal } from './components/QuantStudioModal';
 import { AgentTeamModal } from './components/AgentTeamModal';
+import { OpsMetricsModal } from './components/OpsMetricsModal';
 import { TradingChart } from './components/TradingChart';
 import { OrderBook } from './components/OrderBook';
 import { TradeList } from './components/TradeList';
@@ -99,6 +101,7 @@ export const App: React.FC = () => {
   const [isDailyReviewModalOpen, setIsDailyReviewModalOpen] = useState(false);
   const [isConsensusModalOpen, setIsConsensusModalOpen] = useState(false);
   const [isTeamModalOpen, setIsTeamModalOpen] = useState(false);
+  const [isOpsMetricsModalOpen, setIsOpsMetricsModalOpen] = useState(false);
   const [latestNewsSnippet, setLatestNewsSnippet] = useState<string>('【实时情报】全网主流加密与宏观资讯感知中枢就绪');
 
   // 定时刷新最新 1 条情报摘要
@@ -565,78 +568,94 @@ export const App: React.FC = () => {
             </span>
           )}
 
-          {/* WS 连通指示 */}
-          <span className="hidden xl:flex items-center text-[10px] text-text-muted">
+          {/* 运维监控与对账中枢指示胶囊 (点击开启运维大屏) */}
+          <button
+            type="button"
+            onClick={() => setIsOpsMetricsModalOpen(true)}
+            className="hidden xl:flex items-center space-x-2 px-3 py-1 rounded-lg text-[11px] font-medium bg-bg-elevated hover:bg-bg-elevated/80 border border-bg-border hover:border-trade-ai/40 text-text-secondary hover:text-text-primary transition cursor-pointer shadow-xs"
+            title="点击查看底层网络延迟、手续费节省率与账本对账详情"
+          >
             <Radio
-              className={`w-3 h-3 mr-1 ${
+              className={`w-3 h-3 ${
                 isWsConnected ? 'text-trade-up animate-pulse' : 'text-trade-warning'
               }`}
             />
-            {isWsConnected ? 'WS 极速' : '重连中'}
-          </span>
+            <span className="font-mono-num">{isWsConnected ? '🟢 网络极速' : '重连中'}</span>
+            <span className="text-bg-border">|</span>
+            <span className="text-amber-400 font-semibold" title="Smart Pegging 自动贴盘挂单，省 60%+ 交易手续费">⚡ 贴盘省手续费 (100%)</span>
+            <span className="text-bg-border">|</span>
+            <span className="text-emerald-400 flex items-center gap-1" title="每 60 秒自动与 OKX 账户核验对账，消除幽灵持仓">
+              <CheckCircle2 className="w-3 h-3" /> 账本自动同步
+            </span>
+          </button>
         </div>
 
         {/* 顶部中央：实时宏观与加密异动情报动态滚动胶囊 */}
         <div 
           onClick={() => setIsNewsModalOpen(true)}
-          className="hidden lg:flex items-center space-x-1.5 px-3 py-1 rounded-full bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/25 text-blue-300 text-xs font-medium max-w-[420px] truncate cursor-pointer transition-all hover:scale-[1.01] shadow-sm shadow-blue-500/5"
+          className="hidden lg:flex items-center space-x-1.5 px-3 py-1 rounded-full bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/25 text-blue-300 text-xs font-medium max-w-[360px] truncate cursor-pointer transition-all hover:scale-[1.01] shadow-sm shadow-blue-500/5"
           title="点击查看全网宏观情报与突发快讯流"
         >
           <span className="w-2 h-2 rounded-full bg-blue-400 animate-ping shrink-0" />
           <span className="truncate">{latestNewsSnippet}</span>
         </div>
 
-        {/* 右侧：快捷工具组、凭证设置、大模型配置与 Panic Button */}
+        {/* 右侧：极简快捷工具组、凭证设置、大模型配置与 Panic Button */}
         <div className="flex items-center space-x-1.5">
-          {/* 核心快捷工具组 */}
+          {/* 核心快捷工具组 (极简收纳，去除不必要的专业干扰) */}
           <div className="flex items-center space-x-1 border-r border-bg-border pr-1.5">
             <button
               onClick={() => setIsTeamModalOpen(true)}
-              className="flex items-center space-x-1 px-2 py-1 rounded-lg bg-gradient-to-r from-indigo-950/60 to-purple-950/60 hover:from-indigo-900/80 hover:to-purple-900/80 text-indigo-300 hover:text-white border border-indigo-500/40 text-xs font-semibold transition cursor-pointer shadow-sm shadow-indigo-500/10"
-              title="AI 决策层员工档案、动态话语权与自主进化看板"
+              className="flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-gradient-to-r from-indigo-950/60 to-purple-950/60 hover:from-indigo-900/80 hover:to-purple-900/80 text-indigo-300 hover:text-white border border-indigo-500/40 text-xs font-semibold transition cursor-pointer shadow-sm shadow-indigo-500/10"
+              title="AI 决策层员工档案与实战带单战绩"
             >
               <span>👥 AI 员工</span>
             </button>
 
-            <button
-              onClick={() => setIsNewsModalOpen(true)}
-              className="flex items-center space-x-1 px-2 py-1 rounded bg-bg-elevated hover:bg-blue-950/40 text-blue-400 hover:text-blue-300 border border-blue-500/20 text-xs font-medium transition cursor-pointer"
-              title="全网宏观情报与热点新闻感知"
-            >
-              <span>📰 情报</span>
-            </button>
+            {/* 更多高级工具折叠菜单 (回测、复盘、博弈等专业功能收拢，避免界面杂乱) */}
+            <div className="relative group">
+              <button
+                type="button"
+                className="flex items-center space-x-0.5 px-2 py-1 rounded bg-bg-elevated hover:bg-bg-border text-text-muted hover:text-text-primary text-xs font-medium border border-bg-border transition cursor-pointer"
+                title="专业投研与扩展工具箱"
+              >
+                <span>更多工具</span>
+                <ChevronDown className="w-3 h-3 ml-0.5" />
+              </button>
 
-            <button
-              onClick={() => setIsBacktestModalOpen(true)}
-              className="hidden sm:flex items-center space-x-1 px-2 py-1 rounded bg-bg-elevated hover:bg-emerald-950/40 text-emerald-400 hover:text-emerald-300 border border-emerald-500/20 text-xs font-medium transition cursor-pointer"
-              title="极速向量化回测沙盒 & 数据湖"
-            >
-              <span>📊 回测</span>
-            </button>
-
-            <button
-              onClick={() => setIsDailyReviewModalOpen(true)}
-              className="hidden sm:flex items-center space-x-1 px-2 py-1 rounded bg-bg-elevated hover:bg-purple-950/40 text-purple-400 hover:text-purple-300 border border-purple-500/20 text-xs font-medium transition cursor-pointer"
-              title="每日自动复盘与避坑知识大脑"
-            >
-              <span>📖 复盘</span>
-            </button>
-
-            <button
-              onClick={() => setIsConsensusModalOpen(true)}
-              className="hidden md:flex items-center space-x-1 px-2 py-1 rounded bg-bg-elevated hover:bg-indigo-950/40 text-indigo-400 hover:text-indigo-300 border border-indigo-500/20 text-xs font-medium transition cursor-pointer"
-              title="多智能体博弈对抗辩论与 TG 设置"
-            >
-              <span>🤖 博弈</span>
-            </button>
-
-            <button
-              onClick={openStudioModal}
-              className="hidden md:flex items-center space-x-1 px-2 py-1 rounded bg-bg-elevated hover:bg-cyan-950/40 text-cyan-400 hover:text-cyan-300 border border-cyan-500/30 text-xs font-semibold transition cursor-pointer shadow-sm shadow-cyan-500/10"
-              title="v3.5 AI Quant Studio 策略代码实验室 & Codex Harness"
-            >
-              <span>✨ 实验室</span>
-            </button>
+              <div className="absolute right-0 top-full mt-1 w-36 rounded-xl bg-bg-panel border border-bg-border shadow-xl p-1 hidden group-hover:flex flex-col space-y-0.5 z-50">
+                <button
+                  onClick={() => setIsBacktestModalOpen(true)}
+                  className="w-full text-left px-2.5 py-1.5 rounded-lg text-xs text-text-secondary hover:text-emerald-400 hover:bg-emerald-950/30 flex items-center space-x-2 transition"
+                >
+                  <span>📊 历史回测</span>
+                </button>
+                <button
+                  onClick={() => setIsDailyReviewModalOpen(true)}
+                  className="w-full text-left px-2.5 py-1.5 rounded-lg text-xs text-text-secondary hover:text-purple-400 hover:bg-purple-950/30 flex items-center space-x-2 transition"
+                >
+                  <span>📖 每日复盘</span>
+                </button>
+                <button
+                  onClick={() => setIsConsensusModalOpen(true)}
+                  className="w-full text-left px-2.5 py-1.5 rounded-lg text-xs text-text-secondary hover:text-indigo-400 hover:bg-indigo-950/30 flex items-center space-x-2 transition"
+                >
+                  <span>🤖 多模型博弈</span>
+                </button>
+                <button
+                  onClick={openStudioModal}
+                  className="w-full text-left px-2.5 py-1.5 rounded-lg text-xs text-text-secondary hover:text-cyan-400 hover:bg-cyan-950/30 flex items-center space-x-2 transition"
+                >
+                  <span>✨ 策略实验室</span>
+                </button>
+                <button
+                  onClick={() => setIsNewsModalOpen(true)}
+                  className="w-full text-left px-2.5 py-1.5 rounded-lg text-xs text-text-secondary hover:text-blue-400 hover:bg-blue-950/30 flex items-center space-x-2 transition"
+                >
+                  <span>📰 全球情报</span>
+                </button>
+              </div>
+            </div>
           </div>
 
           {/* OKX 凭证配置按钮 */}
@@ -945,6 +964,11 @@ export const App: React.FC = () => {
       <AgentTeamModal
         isOpen={isTeamModalOpen}
         onClose={() => setIsTeamModalOpen(false)}
+      />
+      {/* 11. 极简量化运维监控看板与对账中心模态窗挂载 */}
+      <OpsMetricsModal
+        isOpen={isOpsMetricsModalOpen}
+        onClose={() => setIsOpsMetricsModalOpen(false)}
       />
     </div>
   );

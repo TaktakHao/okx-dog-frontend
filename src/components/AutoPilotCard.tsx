@@ -24,6 +24,9 @@ import {
   X,
   Layers,
   Radio,
+  Sparkles,
+  CheckCircle2,
+  Zap,
 } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
 import { autoPilotApi } from '../services/api';
@@ -72,6 +75,7 @@ export const AutoPilotCard: React.FC = () => {
   const [symbolsPool, setSymbolsPool] = useState<string[]>(focusSymbols);
   const [maxConcurrentPositions, setMaxConcurrentPositions] = useState<number>(3);
   const [trailingStopEnabled, setTrailingStopEnabled] = useState<boolean>(true);
+  const [smartPeggingEnabled, setSmartPeggingEnabled] = useState<boolean>(true);
   const [newSymbolInput, setNewSymbolInput] = useState<string>('');
 
   // 🛡️ 最低本金止损底线与最大允许亏损额 (Capital Preservation Floor)
@@ -267,6 +271,57 @@ export const AutoPilotCard: React.FC = () => {
       setAutoPilotStatus(res);
     } catch (err) {
       console.warn('更新激进程度异常:', err);
+    }
+  };
+
+  // 🏆 恢复官方推荐企业最优解参数 (通俗大白话预设)
+  const handleRestoreOptimalConfig = () => {
+    const optimalPool = ['BTC-USDT-SWAP', 'ETH-USDT-SWAP', 'SOL-USDT-SWAP', 'XAU-USDT-SWAP'];
+    setAggressivenessMode('BALANCED');
+    setMinConfidence(0.70);
+    setAutoLeverage(true);
+    setSelectedFocusMode('MULTI_SYMBOL_POOL');
+    setMaxScaleLayers(3);
+    setScaleInStrategy('SMART_HYBRID');
+    setAutoReversalEnabled(true);
+    setTrailingStopEnabled(true);
+    setSmartPeggingEnabled(true);
+    setMaxConcurrentPositions(3);
+    setSymbolsPool(optimalPool);
+  };
+
+  // ⚡ 一键按官方最优解开启操盘 (免配置傻瓜式一键启动)
+  const handleOneClickOptimalStart = async () => {
+    setLoading(true);
+    try {
+      const optimalPool = ['BTC-USDT-SWAP', 'ETH-USDT-SWAP', 'SOL-USDT-SWAP', 'XAU-USDT-SWAP'];
+      handleRestoreOptimalConfig();
+      setFocusSymbols(optimalPool);
+
+      const res = await autoPilotApi.updateConfig({
+        aggressiveness_mode: 'BALANCED',
+        min_confidence: 0.70,
+        auto_leverage_enabled: true,
+        focus_mode: 'MULTI_SYMBOL_POOL',
+        symbols: optimalPool,
+        focus_symbols: optimalPool,
+        max_scale_layers: 3,
+        scale_in_strategy: 'SMART_HYBRID',
+        auto_reversal_enabled: true,
+        max_concurrent_positions: 3,
+        trailing_stop_enabled: true,
+      });
+      setAutoPilotStatus(res);
+
+      if (!isRunning) {
+        const startRes = await autoPilotApi.start();
+        setAutoPilotStatus(startRes);
+        setIsRunning(true);
+      }
+    } catch (err) {
+      console.warn('一键开启最优解操盘异常:', err);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -514,6 +569,94 @@ export const AutoPilotCard: React.FC = () => {
             )}
           </button>
         </div>
+      </div>
+
+      {/* 🌟 官方企业级最优解模式控制板 (通俗傻瓜式一键托管) */}
+      <div className={`p-2.5 rounded-xl border transition-all ${
+        isRunning
+          ? 'bg-gradient-to-r from-emerald-950/40 via-bg-elevated to-bg-secondary border-emerald-500/40 shadow-sm shadow-emerald-500/10'
+          : 'bg-gradient-to-r from-trade-ai/10 via-bg-elevated to-bg-secondary border-trade-ai/30 shadow-sm'
+      }`}>
+        <div className="flex items-center justify-between pb-1.5 border-b border-bg-border/60">
+          <div className="flex items-center space-x-1.5">
+            <span className="flex h-2 w-2 relative">
+              <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${isRunning ? 'bg-emerald-400' : 'bg-trade-ai'}`}></span>
+              <span className={`relative inline-flex rounded-full h-2 w-2 ${isRunning ? 'bg-emerald-500' : 'bg-trade-ai'}`}></span>
+            </span>
+            <span className="text-xs font-bold text-text-primary flex items-center gap-1">
+              <span>🏆 官方企业最优解方案</span>
+              <span className="text-[10px] text-amber-400 font-normal">（省心托管）</span>
+            </span>
+          </div>
+
+          <span className={`text-[10px] font-mono px-2 py-0.5 rounded border font-medium ${
+            isRunning
+              ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
+              : 'bg-blue-500/15 text-blue-400 border-blue-500/30'
+          }`}>
+            {isRunning ? '已激活运行中' : '就绪待启动'}
+          </span>
+        </div>
+
+        {/* 4 大核心保障通俗指示卡片 */}
+        <div className="grid grid-cols-2 gap-1.5 py-2 text-[10px]">
+          <div className="flex items-start space-x-1.5 p-1.5 rounded-lg bg-bg-primary/50 border border-bg-border/50">
+            <Zap className="w-3.5 h-3.5 text-amber-400 shrink-0 mt-0.5" />
+            <div>
+              <div className="font-bold text-text-primary flex items-center gap-1">
+                <span>Smart Pegging 智能贴盘</span>
+                <span className="text-[8px] px-1 py-0.2 rounded bg-amber-500/20 text-amber-300">省手续费</span>
+              </div>
+              <div className="text-text-muted text-[9px] leading-tight mt-0.5">买一/卖一档贴盘挂单，省 60%+ 交易成本</div>
+            </div>
+          </div>
+
+          <div className="flex items-start space-x-1.5 p-1.5 rounded-lg bg-bg-primary/50 border border-bg-border/50">
+            <ShieldCheck className="w-3.5 h-3.5 text-blue-400 shrink-0 mt-0.5" />
+            <div>
+              <div className="font-bold text-text-primary flex items-center gap-1">
+                <span>波动率防爆仓控仓</span>
+                <span className="text-[8px] px-1 py-0.2 rounded bg-blue-500/20 text-blue-300">自动防插针</span>
+              </div>
+              <div className="text-text-muted text-[9px] leading-tight mt-0.5">剧烈暴跌自动收缩仓位，单笔亏损锁定1%</div>
+            </div>
+          </div>
+
+          <div className="flex items-start space-x-1.5 p-1.5 rounded-lg bg-bg-primary/50 border border-bg-border/50">
+            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" />
+            <div>
+              <div className="font-bold text-text-primary flex items-center gap-1">
+                <span>60秒账本自动同步</span>
+                <span className="text-[8px] px-1 py-0.2 rounded bg-emerald-500/20 text-emerald-300">实时对账</span>
+              </div>
+              <div className="text-text-muted text-[9px] leading-tight mt-0.5">自动核对OKX真实持仓，杜绝假单与幽灵持仓</div>
+            </div>
+          </div>
+
+          <div className="flex items-start space-x-1.5 p-1.5 rounded-lg bg-bg-primary/50 border border-bg-border/50">
+            <Sparkles className="w-3.5 h-3.5 text-purple-400 shrink-0 mt-0.5" />
+            <div>
+              <div className="font-bold text-text-primary flex items-center gap-1">
+                <span>动态无损保本止盈</span>
+                <span className="text-[8px] px-1 py-0.2 rounded bg-purple-500/20 text-purple-300">锁定胜率</span>
+              </div>
+              <div className="text-text-muted text-[9px] leading-tight mt-0.5">浮盈达标自动把止损线拉到成本价，零风险长尾</div>
+            </div>
+          </div>
+        </div>
+
+        {/* 一键开启最优解大按钮 (如果尚未运行) */}
+        {!isRunning && (
+          <button
+            type="button"
+            onClick={handleOneClickOptimalStart}
+            disabled={loading || riskStatus === 'PANIC_LOCKED'}
+            className="w-full mt-1 py-2 px-3 rounded-lg bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-white font-bold text-xs flex items-center justify-center space-x-1.5 shadow-md shadow-emerald-500/20 transition-all cursor-pointer hover:scale-[1.01]"
+          >
+            <Sparkles className="w-3.5 h-3.5" />
+            <span>⚡ 一键按官方最优解开启操盘 (无需复杂配置)</span>
+          </button>
+        )}
       </div>
 
       {/* 2. 激进程度三档切换器 (保守 / 稳健 / 激进) */}
@@ -828,21 +971,53 @@ export const AutoPilotCard: React.FC = () => {
             <div className="flex items-center justify-between border-b border-bg-border pb-2">
               <div className="flex items-center space-x-2 text-text-primary font-bold text-sm">
                 <Sliders className="w-4 h-4 text-trade-ai" />
-                <span>7x24h 自动操盘引擎参数配置</span>
+                <span>7x24h 自动操盘参数设置</span>
               </div>
-              <button
-                type="button"
-                onClick={() => setIsConfigOpen(false)}
-                className="text-text-muted hover:text-text-primary text-xs cursor-pointer"
-              >
-                ✕
-              </button>
+              <div className="flex items-center space-x-2">
+                <button
+                  type="button"
+                  onClick={handleRestoreOptimalConfig}
+                  className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 hover:bg-emerald-500/30 transition cursor-pointer"
+                  title="一键将下方所有配置恢复为官方最优解推荐值"
+                >
+                  ⚡ 填入官方最优解
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsConfigOpen(false)}
+                  className="text-text-muted hover:text-text-primary text-xs cursor-pointer"
+                >
+                  ✕
+                </button>
+              </div>
             </div>
 
             <div className="space-y-3.5 text-xs">
+              {/* 🌟 Smart Pegging 智能贴盘做市挂单 (省手续费核心开关) */}
+              <div className="flex items-center justify-between p-2 rounded-lg bg-amber-500/10 border border-amber-500/30">
+                <div>
+                  <div className="flex items-center space-x-1.5">
+                    <span className="text-text-primary font-bold">⚡ Smart Pegging 智能贴盘做市</span>
+                    <span className="text-[9px] px-1 py-0.2 rounded bg-amber-500/20 text-amber-300 font-mono">官方最优解</span>
+                  </div>
+                  <span className="text-[10px] text-text-muted block mt-0.5">
+                    买一/卖一档贴盘挂单，享受极低费率（立省 60%+ 手续费），价格漂移自动撤重挂，超高置信度平滑回退
+                  </span>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={smartPeggingEnabled}
+                  onChange={(e) => setSmartPeggingEnabled(e.target.checked)}
+                  className="w-4 h-4 accent-amber-400 cursor-pointer"
+                />
+              </div>
+
               {/* 模式选择：单币专注 vs 组合池 */}
               <div className="space-y-1.5">
-                <div className="text-text-secondary font-medium">量化操盘工作模式</div>
+                <div className="flex items-center justify-between text-text-secondary">
+                  <span className="font-medium">量化操盘工作模式</span>
+                  <span className="text-[10px] text-trade-ai font-mono">官方推荐: 组合轮巡</span>
+                </div>
                 <div className="grid grid-cols-2 gap-2">
                   <button
                     type="button"

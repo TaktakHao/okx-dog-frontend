@@ -447,6 +447,30 @@ export const systemApi = {
       }),
     });
   },
+
+  /**
+   * 获取量化运维核心监控指标 (WS延迟、Maker比例、对账状态)
+   */
+  getOpsMetrics: (): Promise<{
+    ws_latency_ms: number;
+    maker_fill_ratio_pct: number;
+    total_orders_submitted: number;
+    reconciliation_healthy: boolean;
+    last_reconciliation_time?: number;
+    drift_count: number;
+    risk_status: string;
+    is_live_mode: boolean;
+    avg_slippage_pct: number;
+  }> => {
+    return request('/health/ops-metrics', { method: 'GET' });
+  },
+
+  /**
+   * 立即触发一次全量远端持仓与账本自愈对账
+   */
+  triggerReconcileNow: (): Promise<any> => {
+    return request('/health/reconcile-now', { method: 'POST' });
+  },
 };
 
 // =============================================================================

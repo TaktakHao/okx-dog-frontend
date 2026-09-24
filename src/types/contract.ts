@@ -1604,6 +1604,7 @@ export interface BacktestRunRequest {
   slippage_pct?: number;
   atr_sl_multiplier?: number;
   breakeven_ratio?: number;
+  funding_rate_8h?: number;
   params?: Record<string, any>;
 }
 
