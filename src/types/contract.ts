@@ -1813,6 +1813,42 @@ export interface TiltProtectionStatus {
   reason?: string | null;
 }
 
+// =============================================================================
+// 16. 高级数理量化与风控分析契约 (源自 oke_auto_trade 优势融合)
+// =============================================================================
+
+export interface DcaLiquidationAnalysis {
+  is_safe: boolean;
+  max_safe_dca_orders: number;
+  breakeven_price: number;
+  current_liq_price: number;
+  next_dca_liq_price: number;
+  next_order_price: number;
+  liq_safety_buffer_pct: number;
+  required_extreme_margin: number;
+  violation_reason?: string | null;
+}
+
+export interface KalmanPairMetrics {
+  main_symbol: string;
+  sub_symbol: string;
+  dynamic_beta: number;
+  dynamic_alpha: number;
+  spread_z_score: number;
+  covariance_trace: number;
+  is_divergent: boolean;
+  suggested_arbitrage_action: 'NONE' | 'LONG_SUB_SHORT_MAIN' | 'SHORT_SUB_LONG_MAIN' | 'CLOSE';
+}
+
+export interface StrategyPlateauScore {
+  is_plateau_qualified: boolean;
+  drop_top3_decay: number;
+  fee_to_gross_ratio: number;
+  friction_stress_pnl: number;
+  neighbor_stability_score: number;
+}
+
+
 
 
 

@@ -1368,3 +1368,70 @@ export interface WSPushPayload<T = unknown> {
 }
 
 export type WSServerMessage<T = unknown> = WSPushPayload<T>;
+
+// =============================================================================
+// 10. 高级数理量化与风控分析契约 (源自 oke_auto_trade 优势融合)
+// =============================================================================
+
+/**
+ * DCA 与网格动态强平线穿透预判与保证金精算结果
+ */
+export interface DcaLiquidationAnalysis {
+  /** 加仓链条是否安全 (是否存在未决穿仓死穴) */
+  is_safe: boolean;
+  /** 最大安全可加仓轮数 */
+  max_safe_dca_orders: number;
+  /** 加仓后的持仓保本均价 */
+  breakeven_price: number;
+  /** 当前持仓强平价 */
+  current_liq_price: number;
+  /** 下一档加仓后的推导强平价 */
+  next_dca_liq_price: number;
+  /** 下一档计划加仓触发价 */
+  next_order_price: number;
+  /** 距离强平价的安全缓冲百分比 (%) */
+  liq_safety_buffer_pct: number;
+  /** 承受 30% 极端逆势波动所需总隔离保证金 (USDT) */
+  required_extreme_margin: number;
+  /** 强平穿透拦截原因说明 */
+  violation_reason?: string | null;
+}
+
+/**
+ * 卡尔曼滤波动态协整配对与对冲套利指标
+ */
+export interface KalmanPairMetrics {
+  /** 配对主资产 (例如 BTC-USDT-SWAP) */
+  main_symbol: string;
+  /** 配对从属资产 (例如 ETH-USDT-SWAP) */
+  sub_symbol: string;
+  /** 卡尔曼滤波动态对冲斜率 Beta */
+  dynamic_beta: number;
+  /** 卡尔曼滤波动态截距 Alpha */
+  dynamic_alpha: number;
+  /** 当前残差价差归一化 Z-Score */
+  spread_z_score: number;
+  /** 协方差矩阵迹 Tr(P)，监控协整健康度 */
+  covariance_trace: number;
+  /** 是否协整破裂发散 (触发对冲熔断) */
+  is_divergent: boolean;
+  /** 配对套利建议动作 */
+  suggested_arbitrage_action: 'NONE' | 'LONG_SUB_SHORT_MAIN' | 'SHORT_SUB_LONG_MAIN' | 'CLOSE';
+}
+
+/**
+ * 策略参数平原与生死线抗过拟合质量评分
+ */
+export interface StrategyPlateauScore {
+  /** 是否通过参数平原与生死线过滤 */
+  is_plateau_qualified: boolean;
+  /** 剔除 Top3 暴利单后的收益保留率 (要求 >= 0.50) */
+  drop_top3_decay: number;
+  /** 手续费占毛利润比例 (要求 < 0.40) */
+  fee_to_gross_ratio: number;
+  /** 双边 40bps 滑点摩擦压力测试后的净期望 (USDT) */
+  friction_stress_pnl: number;
+  /** 邻域 +/-20% 参数平原稳定性得分 (0-100) */
+  neighbor_stability_score: number;
+}
+
