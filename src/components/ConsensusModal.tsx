@@ -10,12 +10,16 @@ import {
   RefreshCw,
   Award,
   ShieldAlert,
+  Coins,
+  Briefcase,
+  Zap,
 } from 'lucide-react';
-import { consensusApi, telegramApi, riskApi } from '../services/api';
+import { consensusApi, telegramApi, riskApi, paperclipApi } from '../services/api';
 import {
   MultiAgentConsensusResponse,
   TelegramConfig,
   TiltProtectionStatus,
+  CompanyQuotaOverview,
 } from '../types';
 
 interface ConsensusModalProps {
@@ -29,9 +33,13 @@ export const ConsensusModal: React.FC<ConsensusModalProps> = ({
   onClose,
   activeSymbol = 'BTC-USDT-SWAP',
 }) => {
-  const [activeTab, setActiveTab] = useState<'consensus' | 'telegram'>('consensus');
+  const [activeTab, setActiveTab] = useState<'consensus' | 'company' | 'telegram'>('consensus');
   const [consensusData, setConsensusData] = useState<MultiAgentConsensusResponse | null>(null);
   const [loadingConsensus, setLoadingConsensus] = useState(false);
+
+  // Paperclip 虚拟公司战绩配额状态
+  const [quotaOverview, setQuotaOverview] = useState<CompanyQuotaOverview | null>(null);
+  const [loadingQuota, setLoadingQuota] = useState(false);
 
   // Telegram 状态
   const [tgConfig, setTgConfig] = useState<TelegramConfig | null>(null);
@@ -44,13 +52,28 @@ export const ConsensusModal: React.FC<ConsensusModalProps> = ({
   // 防上头状态
   const [tiltStatus, setTiltStatus] = useState<TiltProtectionStatus | null>(null);
 
+
   useEffect(() => {
     if (isOpen) {
       loadConsensus();
       loadTgConfig();
       loadTiltStatus();
+      loadQuotaOverview();
     }
   }, [isOpen, activeSymbol]);
+
+  const loadQuotaOverview = async () => {
+    try {
+      setLoadingQuota(true);
+      const res = await paperclipApi.getQuotaOverview();
+      setQuotaOverview(res);
+    } catch (e) {
+      console.error('加载虚拟公司员工配额失败', e);
+    } finally {
+      setLoadingQuota(false);
+    }
+  };
+
 
   const loadConsensus = async () => {
     try {
@@ -140,13 +163,14 @@ export const ConsensusModal: React.FC<ConsensusModalProps> = ({
           </div>
           <div className="flex items-center gap-3">
             <button
-              onClick={loadConsensus}
-              disabled={loadingConsensus}
+              onClick={activeTab === 'company' ? loadQuotaOverview : loadConsensus}
+              disabled={loadingConsensus || loadingQuota}
               className="flex items-center gap-1.5 rounded-lg bg-gray-800 hover:bg-gray-700 px-3 py-1.5 text-xs text-gray-300 transition"
             >
-              <RefreshCw className={`h-3.5 w-3.5 ${loadingConsensus ? 'animate-spin' : ''}`} />
-              重新辩论
+              <RefreshCw className={`h-3.5 w-3.5 ${(loadingConsensus || loadingQuota) ? 'animate-spin' : ''}`} />
+              {activeTab === 'company' ? '刷新配额' : '重新辩论'}
             </button>
+
             <button
               onClick={onClose}
               className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-800 hover:text-white transition"
@@ -170,6 +194,17 @@ export const ConsensusModal: React.FC<ConsensusModalProps> = ({
             四大 Agent 对抗博弈辩论视窗
           </button>
           <button
+            onClick={() => setActiveTab('company')}
+            className={`py-3 text-sm font-medium border-b-2 flex items-center gap-2 transition ${
+              activeTab === 'company'
+                ? 'border-indigo-500 text-indigo-400'
+                : 'border-transparent text-gray-400 hover:text-white'
+            }`}
+          >
+            <Briefcase className="h-4 w-4" />
+            💼 虚拟量化公司与战绩奖金池 (Paperclip)
+          </button>
+          <button
             onClick={() => setActiveTab('telegram')}
             className={`py-3 text-sm font-medium border-b-2 flex items-center gap-2 transition ${
               activeTab === 'telegram'
@@ -181,6 +216,7 @@ export const ConsensusModal: React.FC<ConsensusModalProps> = ({
             Telegram 移动端配置与通知测试
           </button>
         </div>
+
 
         {/* 内容区 */}
         <div className="flex-1 overflow-y-auto p-6 space-y-6">
@@ -349,6 +385,133 @@ export const ConsensusModal: React.FC<ConsensusModalProps> = ({
                 </div>
               )}
             </>
+          )}
+
+          {activeTab === 'company' && (
+            <div className="space-y-6">
+              {/* 公司顶层概览看板 */}
+              <div className="rounded-xl border border-indigo-900/40 bg-gradient-to-r from-indigo-950/40 to-slate-900/60 p-5 shadow-lg flex items-center justify-between">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xl">💼</span>
+                    <h3 className="text-base font-bold text-white tracking-wide">
+                      {quotaOverview?.company_name || 'OKX-Dog Autonomous Quant Fund'}
+                    </h3>
+                    <span className="rounded bg-indigo-500/20 px-2 py-0.5 text-xs text-indigo-300 font-mono border border-indigo-500/30">
+                      Mac mini 混合集群
+                    </span>
+                  </div>
+                  <p className="text-xs text-gray-400 mt-1">
+                    本地 CLI 套餐包月机制驱动 • 长期主义复利导向 • 战绩驱动算力分红
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-6">
+                  <div className="text-right">
+                    <div className="text-[11px] text-gray-400 font-medium">团队累计获得奖励 Tokens</div>
+                    <div className="text-lg font-mono font-bold text-emerald-400">
+                      {quotaOverview?.total_bonus_pool_tokens?.toLocaleString() || '300,000'}
+                    </div>
+                  </div>
+                  <div className="text-right border-l border-gray-800 pl-6">
+                    <div className="text-[11px] text-gray-400 font-medium">当前可用剩余奖金池</div>
+                    <div className="text-lg font-mono font-bold text-indigo-400 flex items-center gap-1.5 justify-end">
+                      <Coins className="h-4 w-4 text-amber-400" />
+                      {quotaOverview?.remaining_pool_tokens?.toLocaleString() || '150,000'}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* 6 大 AI 员工战绩卡片网格 */}
+              <div className="grid grid-cols-3 gap-4">
+                {(quotaOverview?.employees_quota || []).map((emp, idx) => (
+                  <div
+                    key={emp.role || idx}
+                    className="rounded-xl border border-gray-800/80 bg-[#161b22] p-4 flex flex-col justify-between hover:border-gray-700 transition"
+                  >
+                    <div>
+                      {/* 卡片头部 */}
+                      <div className="flex items-center justify-between border-b border-gray-800/80 pb-2.5">
+                        <div className="flex items-center gap-2">
+                          <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-gray-800 text-sm">
+                            {emp.role === 'CHIEF_ARBITER' ? '👑' : emp.role === 'BULL_SPECIALIST' ? '🚀' : emp.role === 'BEAR_CRITIC' ? '🛡️' : emp.role === 'MACRO_NEWS' ? '🌐' : emp.role === 'MICROSTRUCTURE' ? '🎯' : '⚖️'}
+                          </div>
+                          <div>
+                            <div className="text-sm font-bold text-white">{emp.name}</div>
+                            <div className="text-[10px] text-gray-400">{emp.level_title || '量化合伙人'}</div>
+                          </div>
+                        </div>
+                        <span className="text-[11px] font-mono text-indigo-300 bg-indigo-950/60 px-2 py-0.5 rounded border border-indigo-800/50">
+                          权重 {emp.current_weight}%
+                        </span>
+                      </div>
+
+                      {/* 战绩指标 */}
+                      <div className="grid grid-cols-3 gap-2 py-3 border-b border-gray-800/50 text-center">
+                        <div>
+                          <div className="text-[10px] text-gray-400">7D 归因净利</div>
+                          <div className={`text-xs font-mono font-bold ${emp.rolling_7d_pnl_usdt >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                            {emp.rolling_7d_pnl_usdt >= 0 ? `+${emp.rolling_7d_pnl_usdt}` : emp.rolling_7d_pnl_usdt} U
+                          </div>
+                        </div>
+                        <div>
+                          <div className="text-[10px] text-gray-400">滚动胜率</div>
+                          <div className="text-xs font-mono font-bold text-gray-200">
+                            {(emp.rolling_win_rate * 100).toFixed(0)}%
+                          </div>
+                        </div>
+                        <div>
+                          <div className="text-[10px] text-gray-400">排雷避险</div>
+                          <div className="text-xs font-mono font-bold text-amber-400">
+                            {emp.successful_hedges_count} 次
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* 奖金池与剩余可用 Tokens */}
+                      <div className="mt-3 space-y-1.5">
+                        <div className="flex justify-between text-xs">
+                          <span className="text-gray-400 flex items-center gap-1">
+                            <Coins className="h-3 w-3 text-amber-400" />
+                            剩余可用奖金:
+                          </span>
+                          <span className="font-mono font-bold text-indigo-300">
+                            {emp.remaining_bonus_tokens.toLocaleString()} Tokens
+                          </span>
+                        </div>
+                        {/* 进度条 */}
+                        <div className="w-full bg-gray-800 h-1.5 rounded-full overflow-hidden">
+                          <div
+                            className="bg-gradient-to-r from-indigo-500 to-emerald-400 h-full rounded-full transition-all"
+                            style={{
+                              width: `${Math.min(100, Math.max(10, (emp.remaining_bonus_tokens / Math.max(1, emp.total_bonus_earned_tokens)) * 100))}%`
+                            }}
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* 卡片底部特权标签 */}
+                    <div className="mt-4 pt-2.5 border-t border-gray-800/80 flex items-center justify-between text-[11px]">
+                      {emp.deep_thinking_unlocked ? (
+                        <span className="text-emerald-400 flex items-center gap-1 font-medium">
+                          <Zap className="h-3 w-3 text-emerald-400" />
+                          🌟 深度思考长链已解锁
+                        </span>
+                      ) : (
+                        <span className="text-gray-500 flex items-center gap-1">
+                          ⚡ 标准精简推理模式
+                        </span>
+                      )}
+                      <span className="text-gray-500 font-mono text-[10px]">
+                        累计: {emp.total_bonus_earned_tokens.toLocaleString()}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
           )}
 
           {activeTab === 'telegram' && (

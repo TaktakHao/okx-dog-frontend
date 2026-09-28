@@ -39,7 +39,9 @@ import {
   RiskAuditLogModel,
   PaperAccountInfo,
   SymbolListResponse,
+  CompanyQuotaOverview,
 } from '../types';
+
 
 const BASE_URL = '/api/v1';
 
@@ -764,5 +766,25 @@ export const evolutionApi = {
     return `/api/v1/evolution/dataset/download/${encodeURIComponent(filename)}`;
   },
 };
+
+// =============================================================================
+// 12. Paperclip 虚拟公司与员工战绩配额 API
+// =============================================================================
+
+export const paperclipApi = {
+  getCompanyOrg: (): Promise<any> => {
+    return request<any>('/paperclip/org');
+  },
+  getQuotaOverview: (): Promise<CompanyQuotaOverview> => {
+    return request<CompanyQuotaOverview>('/paperclip/quota/overview');
+  },
+  triggerAnomalyTask: (data: any): Promise<any> => {
+    return request<any>('/paperclip/task/anomaly', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+};
+
 
 

@@ -1848,6 +1848,41 @@ export interface StrategyPlateauScore {
   neighbor_stability_score: number;
 }
 
+// =============================================================================
+// 17. Paperclip 虚拟量化公司与员工战绩激励契约 (v6.0)
+// =============================================================================
+
+export type EmployeeRole =
+  | 'CHIEF_ARBITER'
+  | 'BULL_SPECIALIST'
+  | 'BEAR_CRITIC'
+  | 'MACRO_NEWS'
+  | 'MICROSTRUCTURE'
+  | 'CFO_AUDITOR';
+
+export interface EmployeeQuotaStatus {
+  role: EmployeeRole;
+  name: string;
+  rolling_7d_pnl_usdt: number;
+  rolling_win_rate: number;
+  successful_hedges_count: number;
+  total_bonus_earned_tokens: number;
+  remaining_bonus_tokens: number;
+  deep_thinking_unlocked: boolean;
+  current_weight: number;
+  level_title?: string;
+}
+
+export interface CompanyQuotaOverview {
+  company_name: string;
+  subscription_type: string;
+  total_bonus_pool_tokens: number;
+  remaining_pool_tokens: number;
+  employees_quota: EmployeeQuotaStatus[];
+  updated_at_ms: number;
+}
+
+
 
 
 
