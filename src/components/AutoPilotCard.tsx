@@ -56,7 +56,7 @@ export const AutoPilotCard: React.FC = () => {
     setAutoPilotHistory,
   } = useAppStore();
 
-  const [isRunning, setIsRunning] = useState<boolean>(true);
+  const [isRunning, setIsRunning] = useState<boolean>(autoPilotStatus?.is_running ?? false);
   const [loading, setLoading] = useState<boolean>(false);
   const [isConfigOpen, setIsConfigOpen] = useState<boolean>(false);
   const [isResetConfirmOpen, setIsResetConfirmOpen] = useState<boolean>(false);
@@ -167,6 +167,13 @@ export const AutoPilotCard: React.FC = () => {
       clearInterval(interval);
     };
   }, [isLiveMode, setAutoPilotStatus, setAutoPilotHistory]);
+
+  // 保持 isRunning 与后端真实全局运行状态 100% 严格对齐
+  useEffect(() => {
+    if (autoPilotStatus && autoPilotStatus.is_running !== undefined) {
+      setIsRunning(autoPilotStatus.is_running);
+    }
+  }, [autoPilotStatus?.is_running]);
 
   // 2. 动态计时器：更新累计运行时长
   useEffect(() => {
@@ -313,11 +320,10 @@ export const AutoPilotCard: React.FC = () => {
       });
       setAutoPilotStatus(res);
 
-      if (!isRunning) {
-        const startRes = await autoPilotApi.start();
-        setAutoPilotStatus(startRes);
-        setIsRunning(true);
-      }
+      // 强制启动操盘 (无论当前本地状态如何，直接调用 start 确保后端处于运行状态)
+      const startRes = await autoPilotApi.start();
+      setAutoPilotStatus(startRes);
+      setIsRunning(true);
     } catch (err) {
       console.warn('一键开启最优解操盘异常:', err);
     } finally {
