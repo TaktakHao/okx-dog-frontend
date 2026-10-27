@@ -40,6 +40,8 @@ import {
   PaperAccountInfo,
   SymbolListResponse,
   CompanyQuotaOverview,
+  InstrumentSearchResponse,
+  SubscribeFocusResponse,
 } from '../types';
 
 
@@ -209,7 +211,7 @@ export const marketApi = {
     );
   },
   /**
-   * 获取标的池列表与搜索
+   * 获取标的池列表与精选
    */
   getSymbols: (keyword?: string, category?: string): Promise<SymbolListResponse> => {
     const params = new URLSearchParams();
@@ -220,12 +222,29 @@ export const marketApi = {
   },
 
   /**
-   * 批量订阅前端自选与专注标的行情通道
+   * 在 OKX 全量真实在架交易标的池中执行模糊检索与详情查询
    */
-  subscribeFocus: (symbols: string[]): Promise<{ subscribed_symbols: string[] }> => {
-    return request<{ subscribed_symbols: string[] }>('/market/subscribe-focus', {
+  searchInstruments: (
+    query?: string,
+    inst_type: string = 'ALL',
+    quote_ccy: string = 'ALL',
+    limit: number = 30
+  ): Promise<InstrumentSearchResponse> => {
+    const params = new URLSearchParams();
+    if (query) params.append('query', query);
+    if (inst_type) params.append('inst_type', inst_type);
+    if (quote_ccy) params.append('quote_ccy', quote_ccy);
+    params.append('limit', String(limit));
+    return request<InstrumentSearchResponse>(`/market/instruments/search?${params.toString()}`);
+  },
+
+  /**
+   * 批量订阅前端自选与专注标的行情通道 (建立长连接推流)
+   */
+  subscribeFocus: (symbols: string[]): Promise<SubscribeFocusResponse> => {
+    return request<SubscribeFocusResponse>('/market/subscribe-focus', {
       method: 'POST',
-      body: JSON.stringify(symbols),
+      body: JSON.stringify({ symbols }),
     });
   },
 };

@@ -1547,14 +1547,33 @@ export interface InstrumentInfo {
   inst_type: 'SPOT' | 'SWAP' | 'FUTURES' | 'MARGIN';
   base_ccy: string;
   quote_ccy: string;
+  settle_ccy?: string;
   name: string;
   category: InstrumentCategory;
   is_tradfi: boolean;
   ct_val?: number;
+  ct_mult?: number;
+  ct_val_ccy?: string;
   tick_sz?: number;
   lot_sz?: number;
   min_sz?: number;
+  lever?: number;
   state?: string;
+}
+
+export interface InstrumentSearchResponse {
+  instruments: InstrumentInfo[];
+  total_count: number;
+  query: string;
+  cached: boolean;
+}
+
+export interface SubscribeFocusRequest {
+  symbols: string[];
+}
+
+export interface SubscribeFocusResponse {
+  subscribed_symbols: string[];
 }
 
 export interface SymbolCategoryGroup {

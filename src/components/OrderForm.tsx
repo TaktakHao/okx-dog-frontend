@@ -114,7 +114,19 @@ export const OrderForm: React.FC = () => {
   const numSize = parseFloat(size) || 0;
   const notionalUsdt = numPrice * numSize;
   const requiredMargin = leverage > 0 ? notionalUsdt / leverage : notionalUsdt;
-  const availMargin = balance?.available_margin_usdt !== undefined ? balance.available_margin_usdt : (isLiveMode ? 0.0 : 10000.0);
+  const rawAvail = balance?.available_margin_usdt;
+  const fallbackEquityAvail =
+    balance && balance.total_equity_usdt > 0
+      ? Math.max(0, balance.total_equity_usdt - (balance.used_margin_usdt || 0) - (balance.frozen_balance_usdt || 0))
+      : 0;
+  const availMargin =
+    rawAvail !== undefined && rawAvail > 0
+      ? rawAvail
+      : fallbackEquityAvail > 0
+      ? fallbackEquityAvail
+      : isLiveMode
+      ? 0.0
+      : 10000.0;
 
 
   // 实时盈亏比计算 (R:R Ratio)
@@ -144,13 +156,15 @@ export const OrderForm: React.FC = () => {
     };
   }, [tpPrice, slPrice, numPrice, numSize, side]);
 
-  // 快捷仓位比例计算
+  // 快捷仓位比例计算 (自适应高价币种 4 位小数精度与单笔硬风控上限)
   const handleRatioClick = (ratio: number) => {
     if (!numPrice || numPrice <= 0) return;
-    const maxAffordableNotional = availMargin * leverage * 0.95; // 预留 5% 缓冲
+    const maxOrderCap = riskRules.max_order_usdt || 1000;
+    const maxAffordableNotional = Math.min(availMargin * leverage * 0.95, maxOrderCap);
     const targetNotional = maxAffordableNotional * ratio;
-    const calculatedSize = (targetNotional / numPrice).toFixed(3);
-    setSize(calculatedSize);
+    const decimals = numPrice >= 10000 ? 4 : numPrice >= 100 ? 3 : numPrice >= 1 ? 2 : 0;
+    const calculatedSize = Math.max(0, Number((targetNotional / numPrice).toFixed(decimals)));
+    setSize(String(calculatedSize));
   };
 
   /**

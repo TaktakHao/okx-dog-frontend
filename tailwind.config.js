@@ -10,6 +10,7 @@ export default {
       colors: {
         // 暗黑金融交易终端配色
         bg: {
+          base: '#0B0E14',      // 基础深黑 (兼容 bg-base)
           primary: '#0B0E14',   // 最底层深黑
           secondary: '#151921', // 卡片/面板背景
           elevated: '#1E232E',  // 浮层/弹窗背景

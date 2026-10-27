@@ -6,7 +6,7 @@
  * 动态净收益与收益率大字看板、胜率/盈亏比指标、SVG 时序收益曲线、最新巡检事件与平仓流水
  */
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Bot,
   Play,
@@ -27,11 +27,13 @@ import {
   Sparkles,
   CheckCircle2,
   Zap,
+  Search,
 } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
-import { autoPilotApi } from '../services/api';
-import { AutoPilotHistoryPoint, AutoPilotTradeRecord } from '../types';
+import { autoPilotApi, marketApi } from '../services/api';
+import { AutoPilotTradeRecord, InstrumentInfo } from '../types';
 import { getBaseCurrency } from '../utils/symbolHelper';
+import { EquityCurvePanel } from './EquityCurvePanel';
 
 export const AutoPilotCard: React.FC = () => {
   const {
@@ -60,7 +62,7 @@ export const AutoPilotCard: React.FC = () => {
   const [loading, setLoading] = useState<boolean>(false);
   const [isConfigOpen, setIsConfigOpen] = useState<boolean>(false);
   const [isResetConfirmOpen, setIsResetConfirmOpen] = useState<boolean>(false);
-  const [activeTab, setActiveTab] = useState<'chart' | 'logs'>('chart');
+  const [activeTab, setActiveTab] = useState<'chart' | 'logs'>('logs');
 
   // 激进程度 (CONSERVATIVE 保守 / BALANCED 稳健 / AGGRESSIVE 激进)
   const [aggressivenessMode, setAggressivenessMode] = useState<'CONSERVATIVE' | 'BALANCED' | 'AGGRESSIVE'>('BALANCED');
@@ -77,6 +79,56 @@ export const AutoPilotCard: React.FC = () => {
   const [trailingStopEnabled, setTrailingStopEnabled] = useState<boolean>(true);
   const [smartPeggingEnabled, setSmartPeggingEnabled] = useState<boolean>(true);
   const [newSymbolInput, setNewSymbolInput] = useState<string>('');
+
+  // 标的检索与下拉联想状态 (对接欧易官方真实标的，防乱输)
+  const [symbolSuggestions, setSymbolSuggestions] = useState<InstrumentInfo[]>([]);
+  const [isSearchingSymbol, setIsSearchingSymbol] = useState<boolean>(false);
+  const [showSymbolDropdown, setShowSymbolDropdown] = useState<boolean>(false);
+  const [symbolSearchError, setSymbolSearchError] = useState<string | null>(null);
+
+  // 自动操盘标的搜索防抖：从 OKX 全量真实合约库中检索
+  useEffect(() => {
+    const q = newSymbolInput.trim();
+    if (!q) {
+      setSymbolSuggestions([]);
+      setShowSymbolDropdown(false);
+      setSymbolSearchError(null);
+      return;
+    }
+
+    let isMounted = true;
+    setIsSearchingSymbol(true);
+    setSymbolSearchError(null);
+
+    const timer = setTimeout(async () => {
+      try {
+        const res = await marketApi.searchInstruments(q, 'SWAP', 'ALL', 8);
+        if (isMounted) {
+          if (res?.instruments && res.instruments.length > 0) {
+            setSymbolSuggestions(res.instruments);
+            setShowSymbolDropdown(true);
+            setSymbolSearchError(null);
+          } else {
+            setSymbolSuggestions([]);
+            setShowSymbolDropdown(true);
+            setSymbolSearchError(`未在欧易找到与 "${q.toUpperCase()}" 相关的合约`);
+          }
+        }
+      } catch (err) {
+        if (isMounted) {
+          console.warn('检索操盘标的失败:', err);
+          setSymbolSuggestions([]);
+        }
+      } finally {
+        if (isMounted) setIsSearchingSymbol(false);
+      }
+    }, 200);
+
+    return () => {
+      isMounted = false;
+      clearTimeout(timer);
+    };
+  }, [newSymbolInput]);
 
   // 🛡️ 最低本金止损底线与最大允许亏损额 (Capital Preservation Floor)
   const [stopLossEquityFloor, setStopLossEquityFloor] = useState<number | ''>('');
@@ -364,17 +416,27 @@ export const AutoPilotCard: React.FC = () => {
     }
   };
 
-  // 标的池增删
+  // 标的池增删 (严格校验合法性，联动 WebSocket 订阅)
   const handleAddSymbol = (sym: string) => {
     const s = sym.trim().toUpperCase();
     if (!s) return;
-    const formatted = s.endsWith('-USDT-SWAP') ? s : `${s.replace('-USDT', '')}-USDT-SWAP`;
-    if (!symbolsPool.includes(formatted)) {
-      const next = [...symbolsPool, formatted];
-      setSymbolsPool(next);
-      setFocusSymbols(next);
+
+    if (symbolsPool.includes(s)) {
+      setNewSymbolInput('');
+      setShowSymbolDropdown(false);
+      return;
     }
+
+    const next = [...symbolsPool, s];
+    setSymbolsPool(next);
+    setFocusSymbols(next);
     setNewSymbolInput('');
+    setShowSymbolDropdown(false);
+
+    // 动态触发 WebSocket 行情长连接订阅
+    marketApi.subscribeFocus([s]).catch((err) => {
+      console.warn('动态订阅轮巡标的行情异常:', err);
+    });
   };
 
   const handleRemoveSymbol = (sym: string) => {
@@ -440,64 +502,6 @@ export const AutoPilotCard: React.FC = () => {
   const lossTrades = autoPilotStatus?.losing_trades_count ?? 0;
   const profitFactor = autoPilotStatus?.profit_factor ?? (winTrades > 0 ? 2.5 : 0);
   const maxDrawdown = autoPilotStatus?.max_drawdown_pct ?? 0;
-
-  // 渲染时序收益曲线 (SVG 平滑曲线绘制与时间轴映射)
-  const curvePoints = autoPilotHistory?.curve || [];
-  const svgChart = useMemo(() => {
-    if (curvePoints.length < 2) {
-      return null;
-    }
-    const width = 300;
-    const height = 80;
-    const paddingX = 8;
-    const paddingY = 8;
-
-    const values = curvePoints.map((p: AutoPilotHistoryPoint) => p.total_pnl);
-    const rawMin = Math.min(...values);
-    const rawMax = Math.max(...values);
-
-    // 动态对齐基准 0 轴
-    const minVal = Math.min(rawMin, -1.0);
-    const maxVal = Math.max(rawMax, 1.0);
-    const range = (maxVal - minVal) === 0 ? 10 : (maxVal - minVal);
-
-    const zeroY = height - paddingY - ((0 - minVal) / range) * (height - paddingY * 2);
-
-    const points = curvePoints.map((p: AutoPilotHistoryPoint, i: number) => {
-      const x = paddingX + (i / (curvePoints.length - 1)) * (width - paddingX * 2);
-      const y = height - paddingY - ((p.total_pnl - minVal) / range) * (height - paddingY * 2);
-      return `${x.toFixed(1)},${y.toFixed(1)}`;
-    });
-
-    const linePath = `M ${points.join(' L ')}`;
-    const areaPath = `M ${points[0]} L ${points.join(' L ')} L ${width - paddingX},${height} L ${paddingX},${height} Z`;
-
-    const isCurrentProfit = values[values.length - 1] >= 0;
-    const strokeColor = isCurrentProfit ? '#00C087' : '#FF3B69';
-    const fillColor = isCurrentProfit ? 'rgba(0, 192, 135, 0.18)' : 'rgba(255, 59, 105, 0.18)';
-
-    const startTs = curvePoints[0].timestamp;
-    const endTs = curvePoints[curvePoints.length - 1].timestamp;
-
-    const formatTs = (ts: number) => {
-      const d = new Date(ts);
-      return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-    };
-
-    return {
-      linePath,
-      areaPath,
-      strokeColor,
-      fillColor,
-      zeroY,
-      lastPoint: points[points.length - 1].split(','),
-      minVal: rawMin,
-      maxVal: rawMax,
-      startStr: formatTs(startTs),
-      endStr: formatTs(endTs),
-      samplesCount: curvePoints.length,
-    };
-  }, [curvePoints]);
 
   return (
     <div className="flex h-full flex-col rounded-lg border border-bg-border bg-bg-secondary p-3 space-y-2.5 overflow-y-auto select-none">
@@ -932,51 +936,10 @@ export const AutoPilotCard: React.FC = () => {
           </span>
         </div>
 
-        <div className="flex-1 p-2 overflow-y-auto">
+        <div className="flex-1 p-1.5 overflow-y-auto">
           {activeTab === 'chart' ? (
-            <div className="h-full flex flex-col justify-between">
-              {svgChart ? (
-                <div className="w-full flex-1 flex flex-col justify-between relative">
-                  <div className="w-full h-[72px] flex items-center justify-center relative">
-                    <svg className="w-full h-full overflow-visible" viewBox="0 0 300 80" preserveAspectRatio="none">
-                      <defs>
-                        <linearGradient id="pnlGrad" x1="0%" y1="0%" x2="0%" y2="100%">
-                          <stop offset="0%" stopColor={svgChart.strokeColor} stopOpacity="0.35" />
-                          <stop offset="100%" stopColor={svgChart.strokeColor} stopOpacity="0.0" />
-                        </linearGradient>
-                      </defs>
-                      {/* 0轴基准线 */}
-                      <line x1="8" y1={svgChart.zeroY} x2="292" y2={svgChart.zeroY} stroke="rgba(255,255,255,0.15)" strokeDasharray="3,3" />
-                      {/* 渐变填充 */}
-                      <path d={svgChart.areaPath} fill="url(#pnlGrad)" />
-                      {/* 曲线 */}
-                      <path d={svgChart.linePath} fill="none" stroke={svgChart.strokeColor} strokeWidth="2" strokeLinecap="round" />
-                      {/* 最新采样点光晕 */}
-                      <circle cx={svgChart.lastPoint[0]} cy={svgChart.lastPoint[1]} r="3" fill={svgChart.strokeColor} className="animate-ping opacity-75" />
-                      <circle cx={svgChart.lastPoint[0]} cy={svgChart.lastPoint[1]} r="3" fill="#fff" />
-                    </svg>
-                  </div>
-
-                  <div className="flex items-center justify-between text-[9px] text-text-muted font-mono pt-1 border-t border-bg-border/40">
-                    <span className="flex items-center space-x-1">
-                      <span>起始:</span>
-                      <span className="text-text-secondary">{svgChart.startStr}</span>
-                    </span>
-                    <span className="text-text-muted">({svgChart.samplesCount}个时序采样点)</span>
-                    <span className="flex items-center space-x-1">
-                      <span>当前:</span>
-                      <span className={isProfitPositive ? 'text-trade-up font-bold' : 'text-trade-down font-bold'}>
-                        {isProfitPositive ? '+' : ''}${totalPnl.toFixed(2)} ({svgChart.endStr})
-                      </span>
-                    </span>
-                  </div>
-                </div>
-              ) : (
-                <div className="h-full flex flex-col items-center justify-center text-text-muted text-[11px] space-y-1">
-                  <Activity className="w-5 h-5 text-trade-ai/40 animate-pulse" />
-                  <span>7x24h 操盘中枢常驻运行中，正在采集收益走势...</span>
-                </div>
-              )}
+            <div className="h-full min-h-[190px] flex flex-col">
+              <EquityCurvePanel compact={true} />
             </div>
           ) : (
             <div className="space-y-1.5">
@@ -1206,25 +1169,94 @@ export const AutoPilotCard: React.FC = () => {
                   ))}
                 </div>
 
-                {/* 快速添加输入框 */}
-                <div className="flex space-x-1.5">
-                  <input
-                    type="text"
-                    placeholder="输入标的代码 (如 XAG, AAPL, SOL)"
-                    value={newSymbolInput}
-                    onChange={(e) => setNewSymbolInput(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') handleAddSymbol(newSymbolInput);
-                    }}
-                    className="flex-1 px-2.5 py-1.5 rounded-lg bg-bg-primary border border-bg-border text-text-primary text-xs font-mono uppercase"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => handleAddSymbol(newSymbolInput)}
-                    className="px-3 py-1.5 rounded-lg bg-bg-elevated hover:bg-bg-border text-text-primary text-xs font-medium cursor-pointer"
-                  >
-                    添加
-                  </button>
+                {/* 智能检索添加输入框与下拉建议 (杜绝随意乱输) */}
+                <div className="relative">
+                  <div className="flex space-x-1.5">
+                    <div className="relative flex-1">
+                      <Search className="w-3.5 h-3.5 text-text-muted absolute left-2.5 top-2.5 pointer-events-none" />
+                      <input
+                        type="text"
+                        placeholder="搜索欧易官方合约 (如 PEPE, SUI, DOGE, SOL, BTC)..."
+                        value={newSymbolInput}
+                        onChange={(e) => setNewSymbolInput(e.target.value)}
+                        onFocus={() => {
+                          if (symbolSuggestions.length > 0) setShowSymbolDropdown(true);
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' && symbolSuggestions.length > 0) {
+                            handleAddSymbol(symbolSuggestions[0].symbol);
+                          } else if (e.key === 'Escape') {
+                            setShowSymbolDropdown(false);
+                          }
+                        }}
+                        className="w-full pl-8 pr-8 py-1.5 rounded-lg bg-bg-primary border border-bg-border text-text-primary text-xs font-mono uppercase focus:outline-none focus:border-trade-ai"
+                      />
+                      {isSearchingSymbol && (
+                        <div className="absolute right-2.5 top-2.5 w-3 h-3 border-2 border-trade-ai border-t-transparent rounded-full animate-spin" />
+                      )}
+                    </div>
+                    {newSymbolInput && (
+                      <button
+                        type="button"
+                        onClick={() => setNewSymbolInput('')}
+                        className="px-2 py-1.5 rounded-lg bg-bg-elevated hover:bg-bg-border text-text-muted hover:text-text-primary text-xs"
+                        title="清空"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+
+                  {/* 欧易官方标的匹配下拉菜单 */}
+                  {showSymbolDropdown && (
+                    <div className="absolute left-0 right-0 top-full mt-1 z-30 bg-bg-elevated border border-bg-border rounded-lg shadow-xl overflow-hidden divide-y divide-bg-border/40 max-h-56 overflow-y-auto">
+                      {symbolSuggestions.length > 0 ? (
+                        symbolSuggestions.map((item) => {
+                          const isAlreadyIn = symbolsPool.includes(item.symbol);
+                          return (
+                            <div
+                              key={item.symbol}
+                              onClick={() => {
+                                if (!isAlreadyIn) handleAddSymbol(item.symbol);
+                              }}
+                              className={`p-2 flex items-center justify-between text-xs transition-colors cursor-pointer ${
+                                isAlreadyIn
+                                  ? 'bg-bg-primary/40 opacity-60 cursor-not-allowed'
+                                  : 'hover:bg-bg-primary hover:text-trade-ai'
+                              }`}
+                            >
+                              <div className="flex items-center space-x-2">
+                                <span className="font-bold font-mono text-text-primary">
+                                  {item.symbol}
+                                </span>
+                                <span className="text-[9px] px-1 rounded bg-purple-500/20 text-purple-300 border border-purple-500/30 font-mono">
+                                  {item.inst_type} {item.lever ? `${item.lever}x` : ''}
+                                </span>
+                                <span className="text-[10px] text-text-muted">
+                                  {item.name}
+                                </span>
+                              </div>
+                              <div>
+                                {isAlreadyIn ? (
+                                  <span className="text-[10px] text-text-muted px-1.5 py-0.5 rounded bg-bg-primary">
+                                    已在池中
+                                  </span>
+                                ) : (
+                                  <span className="text-[10px] text-trade-ai font-medium px-2 py-0.5 rounded bg-trade-ai/10 hover:bg-trade-ai/20">
+                                    + 添加
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })
+                      ) : symbolSearchError ? (
+                        <div className="p-3 text-center text-[11px] text-text-muted">
+                          {symbolSearchError}
+                        </div>
+                      ) : null}
+                    </div>
+                  )}
                 </div>
               </div>
 

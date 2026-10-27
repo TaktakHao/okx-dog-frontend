@@ -40,7 +40,7 @@ import { OpsMetricsModal } from './components/OpsMetricsModal';
 import { TradingChart } from './components/TradingChart';
 import { OrderBook } from './components/OrderBook';
 import { TradeList } from './components/TradeList';
-import { AICopilotCard } from './components/AICopilotCard';
+import { EquityCurvePanel } from './components/EquityCurvePanel';
 import { AutoPilotCard } from './components/AutoPilotCard';
 import { PositionList } from './components/PositionList';
 import { ErrorBoundary } from './components/ErrorBoundary';
@@ -815,10 +815,10 @@ export const App: React.FC = () => {
           </div>
         </section>
 
-        {/* 右栏 (3列 / 宽 25%)：订单簿/成交流与 AI 智能副驾驶卡片 */}
+        {/* 右栏 (3列 / 宽 25%)：订单簿/成交流与全景交互式多维时序收益曲线 */}
         <section className="col-span-12 md:col-span-12 lg:col-span-3 flex flex-col space-y-2 overflow-hidden">
           {/* 上半部：盘口深度与成交记录 (带 Tab 切换) */}
-          <div className="h-[46%] min-h-[240px] flex flex-col rounded-lg border border-bg-border bg-bg-secondary overflow-hidden">
+          <div className="h-[42%] min-h-[210px] flex flex-col rounded-lg border border-bg-border bg-bg-secondary overflow-hidden">
             <div className="flex items-center justify-between px-2 pt-1 border-b border-bg-border bg-bg-secondary">
               <div className="flex items-center space-x-1">
                 <button
@@ -853,10 +853,10 @@ export const App: React.FC = () => {
             </div>
           </div>
 
-          {/* 下半部：AI 智能副驾驶决策卡片 */}
-          <div className="flex-1 min-h-[280px]">
-            <ErrorBoundary fallbackTitle="AI 副驾驶决策卡片加载异常">
-              <AICopilotCard />
+          {/* 下半部：全景可拖拽缩放多维时序收益与净值曲线面板 */}
+          <div className="flex-1 min-h-[300px]">
+            <ErrorBoundary fallbackTitle="时序收益曲线面板加载异常">
+              <EquityCurvePanel />
             </ErrorBoundary>
           </div>
         </section>
