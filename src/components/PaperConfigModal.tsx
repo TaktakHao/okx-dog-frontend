@@ -18,7 +18,7 @@ import {
   Layers,
 } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
-import { paperApi } from '../services/api';
+import { autoPilotApi, paperApi, tradeApi } from '../services/api';
 import { PaperAccountInfo } from '../types';
 
 export const PaperConfigModal: React.FC = () => {
@@ -27,7 +27,10 @@ export const PaperConfigModal: React.FC = () => {
     closePaperModal,
     paperInitialCapital,
     setPaperInitialCapital,
+    setBalance,
     setPositions,
+    setAutoPilotStatus,
+    setAutoPilotHistory,
   } = useAppStore();
 
   const [initialAmount, setInitialAmount] = useState<number>(paperInitialCapital || 10000);
@@ -77,7 +80,16 @@ export const PaperConfigModal: React.FC = () => {
       setAccountInfo(updatedInfo);
       setPaperInitialCapital(initialAmount);
       setPositions([]);
-      setSuccessMsg(`模拟操盘账户已成功重置！初始资金: $${initialAmount.toLocaleString()} USDT`);
+      // 同步刷新全局账户余额、自动操盘状态与清空后的历史曲线
+      const [bal, apStatus, apHist] = await Promise.allSettled([
+        tradeApi.getAccountBalance(),
+        autoPilotApi.getStatus(),
+        autoPilotApi.getHistory(),
+      ]);
+      if (bal.status === 'fulfilled' && bal.value) setBalance(bal.value);
+      if (apStatus.status === 'fulfilled' && apStatus.value) setAutoPilotStatus(apStatus.value);
+      if (apHist.status === 'fulfilled' && apHist.value) setAutoPilotHistory(apHist.value);
+      setSuccessMsg(`模拟操盘账户已成功重置！初始资金: $${initialAmount.toLocaleString()} USDT (18% 停机底线 $${(initialAmount * 0.82).toLocaleString()})`);
       setTimeout(() => {
         setSuccessMsg(null);
       }, 3000);

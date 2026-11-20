@@ -28,7 +28,7 @@ import {
   Radio,
 } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
-import { vaultApi, riskApi } from '../services/api';
+import { vaultApi, riskApi, antigravityApi, AntigravityCliModelItem } from '../services/api';
 import { LLMConfig, TestConnectionResponse, TestLLMResponse } from '../types';
 
 export const SecurityModal: React.FC = () => {
@@ -94,16 +94,44 @@ export const SecurityModal: React.FC = () => {
   // =========================================================================
   // 3. 硬风控规则表单状态
   // =========================================================================
-  const [maxOrderUsdt, setMaxOrderUsdt] = useState(riskRules.max_order_usdt || 500);
-  const [maxDailyLossUsdt, setMaxDailyLossUsdt] = useState(riskRules.max_daily_loss_usdt || 200);
+  const [maxOrderUsdt, setMaxOrderUsdt] = useState(riskRules.max_order_usdt || 3000);
+  const [maxDailyLossUsdt, setMaxDailyLossUsdt] = useState(riskRules.max_daily_loss_usdt || 300);
   const [maxLeverage, setMaxLeverage] = useState(riskRules.max_leverage || 5);
   const [maxSlippagePct, setMaxSlippagePct] = useState(riskRules.max_slippage_pct || 0.5);
-  const [maxOpenPositions, setMaxOpenPositions] = useState(riskRules.max_open_positions || 3);
-  const [maxPositionUsdt, setMaxPositionUsdt] = useState(riskRules.max_position_usdt || 2000);
+  const [maxOpenPositions, setMaxOpenPositions] = useState(riskRules.max_open_positions || 5);
+  const [maxPositionUsdt, setMaxPositionUsdt] = useState(riskRules.max_position_usdt || 6000);
 
   const [riskLoading, setRiskLoading] = useState(false);
   const [riskSuccessMsg, setRiskSuccessMsg] = useState<string | null>(null);
   const [riskErrorMsg, setRiskErrorMsg] = useState<string | null>(null);
+
+  // 解除熔断二次密码确认状态 (严格对齐后端 MASTER_PASSWORD 403 强校验)
+  const [showResetCircuitBox, setShowResetCircuitBox] = useState(false);
+  const [resetMasterPwd, setResetMasterPwd] = useState('');
+  const [resetCircuitReason, setResetCircuitReason] = useState('已人工核对行情与仓位，申请解除熔断');
+  const [resetLoading, setResetLoading] = useState(false);
+
+  // 本地 Antigravity CLI 可用模型动态列表状态
+  const [cliModels, setCliModels] = useState<AntigravityCliModelItem[]>([]);
+  const [cliModelsSource, setCliModelsSource] = useState<'cli' | 'fallback'>('cli');
+  const [cliModelsLoading, setCliModelsLoading] = useState(false);
+
+  const fetchCliModels = async (forceRefresh = false) => {
+    setCliModelsLoading(true);
+    try {
+      const res = await antigravityApi.getModels(forceRefresh);
+      if (res?.models && res.models.length > 0) {
+        setCliModels(res.models);
+        setCliModelsSource(res.source || 'cli');
+        return res.models;
+      }
+    } catch {
+      // 忽略瞬时网络错误，保留已有或默认列表
+    } finally {
+      setCliModelsLoading(false);
+    }
+    return [];
+  };
 
   // 同步外部传入的 tab
   useEffect(() => {
@@ -159,6 +187,9 @@ export const SecurityModal: React.FC = () => {
           }
         })
         .catch(() => {});
+
+      // 4. 动态读取本地 Antigravity CLI 可用模型列表
+      fetchCliModels(false);
     }
   }, [isSecurityModalOpen, setCredentialsInfo, setLLMConfig]);
 
@@ -172,7 +203,17 @@ export const SecurityModal: React.FC = () => {
       case 'antigravity':
         setLlmProvider('antigravity');
         setLlmBaseUrl('http://127.0.0.1:8001');
-        setLlmModel('gemini-3.7-flash');
+        if (cliModels.length > 0) {
+          const stillExists = cliModels.some((m) => m.id === llmModel);
+          setLlmModel(stillExists ? llmModel : cliModels[0].id);
+        } else {
+          setLlmModel('gemini-4-neon-high');
+          fetchCliModels(false).then((loaded) => {
+            if (loaded.length > 0) {
+              setLlmModel(loaded[0].id);
+            }
+          });
+        }
         setLlmTemperature(0.2);
         setLlmMaxTokens(4096);
         setLlmApiKey('');
@@ -424,13 +465,28 @@ export const SecurityModal: React.FC = () => {
   };
 
   const handleResetCircuit = async () => {
+    setRiskErrorMsg(null);
+    setRiskSuccessMsg(null);
+    if (!resetMasterPwd.trim()) {
+      setRiskErrorMsg('请输入系统主密码 (MASTER_PASSWORD) 完成二次授权！');
+      return;
+    }
+    if (resetCircuitReason.trim().length < 4) {
+      setRiskErrorMsg('请填写不少于 4 个字的解除原因备注');
+      return;
+    }
+    setResetLoading(true);
     try {
-      await riskApi.resetCircuitBreaker('OKXDog_Master_2026', '交易员在控制台中主动解除');
+      await riskApi.resetCircuitBreaker(resetMasterPwd.trim(), resetCircuitReason.trim());
       resetRiskLock();
-      setRiskSuccessMsg('熔断状态已解除，系统恢复正常交易');
+      setResetMasterPwd('');
+      setShowResetCircuitBox(false);
+      setRiskSuccessMsg('主密码校验通过，熔断状态已解除，系统恢复正常交易');
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : '解除熔断失败';
+      const msg = err instanceof Error ? err.message : '解除熔断失败（请确认主密码正确）';
       setRiskErrorMsg(msg);
+    } finally {
+      setResetLoading(false);
     }
   };
 
@@ -803,7 +859,9 @@ export const SecurityModal: React.FC = () => {
                       <span>Antigravity CLI</span>
                       <span className="text-[10px] text-trade-ai font-mono px-1 py-0.2 rounded bg-trade-ai/20">首选免Key</span>
                     </div>
-                    <div className="text-[10px] text-text-muted truncate mt-0.5">gemini-3.7-flash (本地)</div>
+                    <div className="text-[10px] text-text-muted truncate mt-0.5">
+                      {cliModels.length > 0 ? `已读取 ${cliModels.length} 个本机模型` : '自动读取本机 CLI 模型'}
+                    </div>
                   </button>
 
                   <button
@@ -952,16 +1010,61 @@ export const SecurityModal: React.FC = () => {
 
                 {/* Model Name */}
                 <div>
-                  <label className="block text-xs font-medium text-text-secondary mb-1">
-                    模型名称 (Model Identifier)
-                  </label>
-                  <input
-                    type="text"
-                    value={llmModel}
-                    onChange={(e) => setLlmModel(e.target.value)}
-                    placeholder="deepseek-reasoner 或 gpt-4o"
-                    className="w-full px-3 py-2 rounded-xl bg-bg-primary border border-bg-border text-xs text-text-primary font-mono focus:outline-none focus:border-trade-ai"
-                  />
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-xs font-medium text-text-secondary">
+                      {llmProvider === 'antigravity'
+                        ? '本地 CLI 模型选择 (从 agy models 实时读取)'
+                        : '模型名称 (Model Identifier)'}
+                    </label>
+                    {llmProvider === 'antigravity' && (
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-bg-elevated border border-bg-border text-text-muted">
+                          {cliModelsSource === 'cli' ? 'CLI 实时读取' : '兜底列表'}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => fetchCliModels(true)}
+                          disabled={cliModelsLoading}
+                          className="text-[11px] text-trade-ai hover:text-trade-ai/80 flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                        >
+                          <RefreshCw className={`w-3 h-3 ${cliModelsLoading ? 'animate-spin' : ''}`} />
+                          <span>{cliModelsLoading ? '读取中...' : '刷新列表'}</span>
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  {llmProvider === 'antigravity' ? (
+                    <select
+                      value={llmModel}
+                      onChange={(e) => setLlmModel(e.target.value)}
+                      disabled={cliModelsLoading && cliModels.length === 0}
+                      className="w-full px-3 py-2 rounded-xl bg-bg-primary border border-bg-border text-xs text-text-primary font-mono focus:outline-none focus:border-trade-ai cursor-pointer"
+                    >
+                      {cliModels.length === 0 ? (
+                        <option value={llmModel}>{cliModelsLoading ? '正在读取本地 CLI 模型...' : llmModel}</option>
+                      ) : (
+                        <>
+                          {!cliModels.some((m) => m.id === llmModel) && llmModel && (
+                            <option value={llmModel}>{llmModel} (当前已保存 · 建议切换)</option>
+                          )}
+                          {cliModels.map((m) => (
+                            <option key={m.id} value={m.id}>
+                              {m.name} — {m.id}
+                            </option>
+                          ))}
+                        </>
+                      )}
+                    </select>
+                  ) : (
+                    <input
+                      type="text"
+                      value={llmModel}
+                      onChange={(e) => setLlmModel(e.target.value)}
+                      placeholder="deepseek-reasoner 或 gpt-4o"
+                      className="w-full px-3 py-2 rounded-xl bg-bg-primary border border-bg-border text-xs text-text-primary font-mono focus:outline-none focus:border-trade-ai"
+                    />
+                  )}
                 </div>
 
                 {/* Temperature & Max Tokens Sliders */}
@@ -1111,14 +1214,48 @@ export const SecurityModal: React.FC = () => {
                 {riskStatus !== 'NORMAL' && (
                   <button
                     type="button"
-                    onClick={handleResetCircuit}
+                    onClick={() => setShowResetCircuitBox((v) => !v)}
                     className="px-3 py-1.5 rounded-lg bg-trade-up hover:bg-trade-up/90 text-white font-semibold text-xs transition-colors flex items-center gap-1"
                   >
                     <RefreshCw className="w-3.5 h-3.5" />
-                    <span>解除熔断</span>
+                    <span>{showResetCircuitBox ? '收起确认' : '主密码解除熔断'}</span>
                   </button>
                 )}
               </div>
+
+              {riskStatus !== 'NORMAL' && showResetCircuitBox && (
+                <div className="p-3.5 rounded-xl border border-amber-500/40 bg-amber-950/20 space-y-2.5">
+                  <div className="text-xs font-semibold text-amber-300">
+                    🔐 二次安全授权：解除单日熔断需输入 .env 中的 MASTER_PASSWORD 并留存审计备注
+                  </div>
+                  <div className="grid grid-cols-2 gap-2.5">
+                    <input
+                      type="password"
+                      value={resetMasterPwd}
+                      onChange={(e) => setResetMasterPwd(e.target.value)}
+                      placeholder="输入系统主密码 (MASTER_PASSWORD)"
+                      className="rounded-lg bg-bg-primary border border-bg-border px-3 py-2 text-xs text-text-primary focus:border-amber-400 focus:outline-none"
+                    />
+                    <input
+                      type="text"
+                      value={resetCircuitReason}
+                      onChange={(e) => setResetCircuitReason(e.target.value)}
+                      placeholder="解除原因 (至少 4 字)"
+                      className="rounded-lg bg-bg-primary border border-bg-border px-3 py-2 text-xs text-text-primary focus:border-amber-400 focus:outline-none"
+                    />
+                  </div>
+                  <div className="flex justify-end">
+                    <button
+                      type="button"
+                      disabled={resetLoading}
+                      onClick={handleResetCircuit}
+                      className="px-3.5 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white text-xs font-bold transition-colors"
+                    >
+                      {resetLoading ? '校验中...' : '确认授权并解除熔断'}
+                    </button>
+                  </div>
+                </div>
+              )}
 
               {/* Risk Form */}
               <form onSubmit={handleSaveRisk} className="space-y-3.5">

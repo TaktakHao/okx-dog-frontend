@@ -53,7 +53,7 @@ export interface AppState {
 
   // 3.1 自选与专注标的池 (Focus Pool - Crypto & TradFi)
   focusSymbols: string[];
-  focusMode: 'SINGLE_SYMBOL' | 'MULTI_SYMBOL_POOL';
+  focusMode: 'SINGLE_SYMBOL' | 'MULTI_SYMBOL_POOL' | 'DYNAMIC_CAPITAL_FLOW';
   maxScaleLayers: number;
   scaleInStrategy: 'PYRAMIDING' | 'PULLBACK_DCA' | 'SMART_HYBRID';
   autoReversalEnabled: boolean;
@@ -106,7 +106,7 @@ export interface AppState {
   setFocusSymbols: (symbols: string[]) => void;
   addFocusSymbol: (symbol: string) => void;
   removeFocusSymbol: (symbol: string) => void;
-  setFocusMode: (mode: 'SINGLE_SYMBOL' | 'MULTI_SYMBOL_POOL') => void;
+  setFocusMode: (mode: 'SINGLE_SYMBOL' | 'MULTI_SYMBOL_POOL' | 'DYNAMIC_CAPITAL_FLOW') => void;
   setMaxScaleLayers: (layers: number) => void;
   setScaleInStrategy: (strat: 'PYRAMIDING' | 'PULLBACK_DCA' | 'SMART_HYBRID') => void;
   setAutoReversalEnabled: (enabled: boolean) => void;
@@ -134,16 +134,16 @@ export interface AppState {
   setAutoPilotHistory: (history: AutoPilotHistoryResponse | null) => void;
 }
 
-// 初始默认风控规则
+// 初始默认风控规则 (对齐 $10k 进取趋势型基线: 单日 3% 熔断 $300 + 单笔上限 $3,000 + 杠杆上限 5x)
 const initialRiskRules: HardRiskRules = {
-  max_order_usdt: 1000,
+  max_order_usdt: 3000,
   max_daily_loss_usdt: 300,
   max_leverage: 5,
   max_slippage_pct: 0.5,
-  max_open_positions: 3,
-  max_position_usdt: 5000,
-  default_stop_loss_pct: 1.5,
-  default_take_profit_pct: 3.0,
+  max_open_positions: 5,
+  max_position_usdt: 6000,
+  default_stop_loss_pct: 2.5,
+  default_take_profit_pct: 6.0,
 };
 
 // 初始默认账户资产
@@ -160,13 +160,13 @@ const initialBalance: AccountBalanceModel = {
   timestamp: Date.now(),
 };
 
+// Top 5 高流动性主流加密永续标的池 (永久剔除代币化美股与低流动性合成合约)
 const DEFAULT_FOCUS_SYMBOLS = [
   'BTC-USDT-SWAP',
   'ETH-USDT-SWAP',
   'SOL-USDT-SWAP',
-  'XAU-USDT-SWAP',
-  'NVDA-USDT-SWAP',
-  'ONDO-USDT-SWAP',
+  'BNB-USDT-SWAP',
+  'DOGE-USDT-SWAP',
 ];
 
 const loadSavedFocusSymbols = (): string[] => {
@@ -217,10 +217,10 @@ export const useAppStore = create<AppState>((set, get) => ({
   riskRules: initialRiskRules,
 
   activeSymbol: 'BTC-USDT-SWAP',
-  activeTimeframe: '1h',
+  activeTimeframe: '4h',
 
   focusSymbols: loadSavedFocusSymbols(),
-  focusMode: 'SINGLE_SYMBOL',
+  focusMode: 'MULTI_SYMBOL_POOL',
   maxScaleLayers: 3,
   scaleInStrategy: 'SMART_HYBRID',
   autoReversalEnabled: true,

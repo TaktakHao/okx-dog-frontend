@@ -26,16 +26,13 @@ import {
 } from 'lucide-react';
 import { useAppStore } from './store/useAppStore';
 import { wsService } from './services/websocket';
-import { marketApi, tradeApi, systemApi, aiApi, autoPilotApi, newsApi } from './services/api';
+import { marketApi, tradeApi, systemApi, autoPilotApi } from './services/api';
 import { SecurityModal } from './components/SecurityModal';
 import { PaperConfigModal } from './components/PaperConfigModal';
 import { SymbolSelectorModal } from './components/SymbolSelectorModal';
 import { BacktestModal } from './components/BacktestModal';
 import { NewsFeedModal } from './components/NewsFeedModal';
 import { DailyReviewModal } from './components/DailyReviewModal';
-import { ConsensusModal } from './components/ConsensusModal';
-import { QuantStudioModal } from './components/QuantStudioModal';
-import { AgentTeamModal } from './components/AgentTeamModal';
 import { OpsMetricsModal } from './components/OpsMetricsModal';
 import { TradingChart } from './components/TradingChart';
 import { OrderBook } from './components/OrderBook';
@@ -46,7 +43,6 @@ import { PositionList } from './components/PositionList';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import {
   getBaseCurrency,
-  isTradFiSymbol,
   formatPrice,
 } from './utils/symbolHelper';
 
@@ -58,9 +54,6 @@ export const App: React.FC = () => {
     llmConfig,
     openSecurityModal,
     openPaperModal,
-    isStudioModalOpen,
-    openStudioModal,
-    closeStudioModal,
     riskStatus,
     triggerPanicLock,
     resetRiskLock,
@@ -68,8 +61,6 @@ export const App: React.FC = () => {
     activeSymbol,
     setActiveSymbol,
     focusSymbols,
-    focusMode,
-    setFocusMode,
     removeFocusSymbol,
     focusTickers,
     updateFocusTicker,
@@ -79,8 +70,6 @@ export const App: React.FC = () => {
     setPositions,
     setOrders,
     setIndicators,
-    setAIAnalysis,
-    setIsAiAnalyzing,
     setAutoPilotStatus,
     setAutoPilotHistory,
     balance,
@@ -99,28 +88,7 @@ export const App: React.FC = () => {
   const [isBacktestModalOpen, setIsBacktestModalOpen] = useState(false);
   const [isNewsModalOpen, setIsNewsModalOpen] = useState(false);
   const [isDailyReviewModalOpen, setIsDailyReviewModalOpen] = useState(false);
-  const [isConsensusModalOpen, setIsConsensusModalOpen] = useState(false);
-  const [isTeamModalOpen, setIsTeamModalOpen] = useState(false);
   const [isOpsMetricsModalOpen, setIsOpsMetricsModalOpen] = useState(false);
-  const [latestNewsSnippet, setLatestNewsSnippet] = useState<string>('【实时情报】全网主流加密与宏观资讯感知中枢就绪');
-
-  // 定时刷新最新 1 条情报摘要
-  useEffect(() => {
-    const fetchNewsSnippet = () => {
-      newsApi.getFeed(3)
-        .then((res) => {
-          if (res?.news && res.news.length > 0) {
-            const first = res.news[0];
-            const prefix = first.urgency === 'P0' ? '🚨 [突发黑天鹅] ' : first.urgency === 'P1' ? '⚡ [重要情报] ' : '📰 [宏观情报] ';
-            setLatestNewsSnippet(`${prefix}${first.title}`);
-          }
-        })
-        .catch(() => {});
-    };
-    fetchNewsSnippet();
-    const timer = setInterval(fetchNewsSnippet, 15000);
-    return () => clearInterval(timer);
-  }, []);
 
   // 快捷键支持 (Ctrl+P / Cmd+P 打开标的搜索弹窗)
   useEffect(() => {
@@ -198,21 +166,19 @@ export const App: React.FC = () => {
     };
   }, [activeSymbol, focusSymbols.join(','), setTicker, updateFocusTicker]);
 
-  // 2. 初始化与模式切换时拉取账户资产、最新行情、多周期指标与实时 AI 研判
+  // 2. 初始化与模式切换时拉取账户资产、最新行情与多周期指标 (双引擎参数已冻结，不再自动触发旧 1h AI 建议)
   useEffect(() => {
     let isMounted = true;
     const currentSymbol = activeSymbol;
 
     const initData = async () => {
       try {
-        setIsAiAnalyzing(true);
-        const [tk, bal, pos, ord, ind, ai] = await Promise.allSettled([
+        const [tk, bal, pos, ord, ind] = await Promise.allSettled([
           marketApi.getTicker(activeSymbol),
           tradeApi.getAccountBalance(),
           tradeApi.getPositions(),
           tradeApi.getOrders(activeSymbol),
           marketApi.getIndicators(activeSymbol),
-          aiApi.triggerAnalysis({ symbol: activeSymbol, timeframe: '1h' }),
         ]);
 
         if (!isMounted) return;
@@ -226,13 +192,8 @@ export const App: React.FC = () => {
         if (ind.status === 'fulfilled' && ind.value && ind.value.symbol === currentSymbol) {
           setIndicators(ind.value);
         }
-        if (ai.status === 'fulfilled' && ai.value && ai.value.symbol === currentSymbol) {
-          setAIAnalysis(ai.value);
-        }
       } catch (err) {
         console.warn('初始化数据拉取异常:', err);
-      } finally {
-        if (isMounted) setIsAiAnalyzing(false);
       }
     };
 
@@ -240,7 +201,7 @@ export const App: React.FC = () => {
     return () => {
       isMounted = false;
     };
-  }, [activeSymbol, isLiveMode, setTicker, setBalance, setPositions, setOrders, setIndicators, setAIAnalysis, setIsAiAnalyzing]);
+  }, [activeSymbol, isLiveMode, setTicker, setBalance, setPositions, setOrders, setIndicators]);
 
   // 3. 定时主动轮询账户资产 (每 5 秒)，保障即便在长连接空闲期实盘资产也 100% 准确同步
   useEffect(() => {
@@ -254,21 +215,6 @@ export const App: React.FC = () => {
 
     return () => clearInterval(balanceTimer);
   }, [isLiveMode, setBalance]);
-
-  // 切换单标的专注模式 vs 多标的池模式
-  const handleToggleFocusMode = async () => {
-    const nextMode = focusMode === 'SINGLE_SYMBOL' ? 'MULTI_SYMBOL_POOL' : 'SINGLE_SYMBOL';
-    setFocusMode(nextMode);
-    try {
-      await autoPilotApi.updateConfig({
-        focus_mode: nextMode,
-        symbol: activeSymbol,
-        focus_symbols: focusSymbols,
-      });
-    } catch (err) {
-      console.warn('更新自动操盘模式失败:', err);
-    }
-  };
 
   // 顶部 Panic 快捷全平点击
   const handleHeaderPanic = () => {
@@ -371,42 +317,21 @@ export const App: React.FC = () => {
             <button
               onClick={() => setIsSymbolModalOpen(true)}
               className="flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-bg-elevated border border-bg-border hover:border-trade-ai transition-all text-xs group cursor-pointer shadow-sm"
-              title="点击打开全景标的与 TradFi 探索 (Ctrl+P / Cmd+P)"
+              title="检索 OKX 官方加密合约 (Ctrl+P / Cmd+P)"
             >
               <Search className="w-3.5 h-3.5 text-text-muted group-hover:text-trade-ai transition-colors" />
               <span className="font-bold font-mono text-text-primary">{activeSymbol}</span>
-              {isTradFiSymbol(activeSymbol) ? (
-                <span className="rounded bg-amber-500/20 text-amber-400 border border-amber-500/30 px-1 py-0.2 text-[9px] font-medium">
-                  TradFi
-                </span>
-              ) : (
-                <span className="rounded bg-trade-ai/20 text-trade-ai px-1 py-0.2 text-[9px] font-mono">
-                  永续
-                </span>
-              )}
+              <span className="rounded bg-trade-ai/20 text-trade-ai px-1 py-0.2 text-[9px] font-mono">
+                永续
+              </span>
               <ChevronDown className="w-3 h-3 text-text-muted group-hover:text-text-primary transition-colors" />
             </button>
           </div>
 
-          {/* 🎯 交互式 Focus Bar 专注标的栏 */}
+          {/* 🎯 Top 5 主流永续快速切换条 */}
           <div className="hidden md:flex items-center space-x-1.5 pl-1 overflow-x-auto no-scrollbar py-0.5">
-            {/* 专注模式切换胶囊 */}
-            <button
-              onClick={handleToggleFocusMode}
-              className={`flex items-center space-x-1 px-2 py-0.5 rounded-full text-[10px] font-bold border transition-all cursor-pointer ${
-                focusMode === 'SINGLE_SYMBOL'
-                  ? 'bg-purple-950/60 text-purple-300 border-purple-500/40 shadow-sm shadow-purple-900/20'
-                  : 'bg-blue-950/60 text-blue-300 border-blue-500/40'
-              }`}
-              title="点击切换量化专注模式：单标的深度加仓量化 vs 多标的池轮巡"
-            >
-              <span>{focusMode === 'SINGLE_SYMBOL' ? '🎯 单币专注' : '🌐 组合池'}</span>
-            </button>
-
-            {/* 专注标的列表 Pills */}
             {focusSymbols.map((sym) => {
               const isCur = activeSymbol === sym;
-              const isTradFi = isTradFiSymbol(sym);
               const symTicker = focusTickers[sym] || (isCur ? ticker : null);
               const chg = symTicker?.change_24h_pct;
               const lastPx = symTicker?.last_price;
@@ -420,9 +345,8 @@ export const App: React.FC = () => {
                       : 'bg-bg-elevated/80 text-text-secondary hover:text-text-primary hover:bg-bg-elevated border-bg-border/60'
                   }`}
                   onClick={() => setActiveSymbol(sym)}
-                  title={`点击切换至 ${sym}`}
+                  title={`切换主图至 ${sym}`}
                 >
-                  <span>{isTradFi ? '🏛️' : '🪙'}</span>
                   <span>{getBaseCurrency(sym)}</span>
                   {lastPx !== undefined && (
                     <span className="text-[10px] text-text-muted hidden xl:inline">
@@ -446,7 +370,7 @@ export const App: React.FC = () => {
                         removeFocusSymbol(sym);
                       }}
                       className="opacity-0 group-hover:opacity-100 hover:text-rose-400 ml-0.5 transition-opacity"
-                      title="移出关注池"
+                      title="移出快捷栏"
                     >
                       ×
                     </button>
@@ -455,11 +379,10 @@ export const App: React.FC = () => {
               );
             })}
 
-            {/* 快速添加专注标的按钮 */}
             <button
               onClick={() => setIsSymbolModalOpen(true)}
               className="flex items-center justify-center w-5 h-5 rounded-lg bg-bg-elevated/60 hover:bg-trade-ai/20 hover:text-trade-ai text-text-muted border border-bg-border text-xs transition cursor-pointer"
-              title="添加更多专注标的 (TradFi / 加密资产)"
+              title="添加监控标的"
             >
               +
             </button>
@@ -568,91 +491,59 @@ export const App: React.FC = () => {
             </span>
           )}
 
-          {/* 运维监控与对账中枢指示胶囊 (点击开启运维大屏) */}
+          {/* 运维监控与对账健康胶囊 (移除硬编码假指标) */}
           <button
             type="button"
             onClick={() => setIsOpsMetricsModalOpen(true)}
             className="hidden xl:flex items-center space-x-2 px-3 py-1 rounded-lg text-[11px] font-medium bg-bg-elevated hover:bg-bg-elevated/80 border border-bg-border hover:border-trade-ai/40 text-text-secondary hover:text-text-primary transition cursor-pointer shadow-xs"
-            title="点击查看底层网络延迟、手续费节省率与账本对账详情"
+            title="查看底层 WS/REST 延迟、对账健康度与数据湖覆盖"
           >
             <Radio
               className={`w-3 h-3 ${
                 isWsConnected ? 'text-trade-up animate-pulse' : 'text-trade-warning'
               }`}
             />
-            <span className="font-mono-num">{isWsConnected ? '🟢 网络极速' : '重连中'}</span>
+            <span className="font-mono-num">{isWsConnected ? '实盘行情流' : '重连中'}</span>
             <span className="text-bg-border">|</span>
-            <span className="text-amber-400 font-semibold" title="Smart Pegging 自动贴盘挂单，省 60%+ 交易手续费">⚡ 贴盘省手续费 (100%)</span>
-            <span className="text-bg-border">|</span>
-            <span className="text-emerald-400 flex items-center gap-1" title="每 60 秒自动与 OKX 账户核验对账，消除幽灵持仓">
-              <CheckCircle2 className="w-3 h-3" /> 账本自动同步
+            <span className="text-emerald-400 flex items-center gap-1" title="60 秒常驻对账守护，隔离外部手动仓位">
+              <CheckCircle2 className="w-3 h-3" /> 账本对账健康
             </span>
           </button>
         </div>
 
-        {/* 顶部中央：实时宏观与加密异动情报动态滚动胶囊 */}
-        <div 
-          onClick={() => setIsNewsModalOpen(true)}
-          className="hidden lg:flex items-center space-x-1.5 px-3 py-1 rounded-full bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/25 text-blue-300 text-xs font-medium max-w-[360px] truncate cursor-pointer transition-all hover:scale-[1.01] shadow-sm shadow-blue-500/5"
-          title="点击查看全网宏观情报与突发快讯流"
-        >
-          <span className="w-2 h-2 rounded-full bg-blue-400 animate-ping shrink-0" />
-          <span className="truncate">{latestNewsSnippet}</span>
-        </div>
-
-        {/* 右侧：极简快捷工具组、凭证设置、大模型配置与 Panic Button */}
+        {/* 右侧：双引擎核心入口、极简离线工具箱、凭证与 Panic Button */}
         <div className="flex items-center space-x-1.5">
-          {/* 核心快捷工具组 (极简收纳，去除不必要的专业干扰) */}
           <div className="flex items-center space-x-1 border-r border-bg-border pr-1.5">
             <button
-              onClick={() => setIsTeamModalOpen(true)}
-              className="flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-gradient-to-r from-indigo-950/60 to-purple-950/60 hover:from-indigo-900/80 hover:to-purple-900/80 text-indigo-300 hover:text-white border border-indigo-500/40 text-xs font-semibold transition cursor-pointer shadow-sm shadow-indigo-500/10"
-              title="AI 决策层员工档案与实战带单战绩"
+              onClick={() => setIsBacktestModalOpen(true)}
+              className="flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-gradient-to-r from-cyan-950/75 to-emerald-950/65 hover:from-cyan-900/80 hover:to-emerald-900/80 text-cyan-200 hover:text-white border border-cyan-500/45 text-xs font-semibold transition cursor-pointer shadow-sm shadow-cyan-500/10"
+              title="60/30/10 双引擎槽位、Gate 2A/2B 一键验真、期现套利雷达与 Walk-Forward 回测"
             >
-              <span>👥 AI 员工</span>
+              <span>📊 双引擎看板</span>
             </button>
 
-            {/* 更多高级工具折叠菜单 (回测、复盘、博弈等专业功能收拢，避免界面杂乱) */}
             <div className="relative group">
               <button
                 type="button"
                 className="flex items-center space-x-0.5 px-2 py-1 rounded bg-bg-elevated hover:bg-bg-border text-text-muted hover:text-text-primary text-xs font-medium border border-bg-border transition cursor-pointer"
-                title="专业投研与扩展工具箱"
+                title="离线复盘与防守工具"
               >
-                <span>更多工具</span>
+                <span>离线工具</span>
                 <ChevronDown className="w-3 h-3 ml-0.5" />
               </button>
 
-              <div className="absolute right-0 top-full mt-1 w-36 rounded-xl bg-bg-panel border border-bg-border shadow-xl p-1 hidden group-hover:flex flex-col space-y-0.5 z-50">
-                <button
-                  onClick={() => setIsBacktestModalOpen(true)}
-                  className="w-full text-left px-2.5 py-1.5 rounded-lg text-xs text-text-secondary hover:text-emerald-400 hover:bg-emerald-950/30 flex items-center space-x-2 transition"
-                >
-                  <span>📊 历史回测</span>
-                </button>
+              <div className="absolute right-0 top-full mt-1 w-40 rounded-xl bg-bg-panel border border-bg-border shadow-xl p-1 hidden group-hover:flex flex-col space-y-0.5 z-50">
                 <button
                   onClick={() => setIsDailyReviewModalOpen(true)}
                   className="w-full text-left px-2.5 py-1.5 rounded-lg text-xs text-text-secondary hover:text-purple-400 hover:bg-purple-950/30 flex items-center space-x-2 transition"
                 >
-                  <span>📖 每日复盘</span>
-                </button>
-                <button
-                  onClick={() => setIsConsensusModalOpen(true)}
-                  className="w-full text-left px-2.5 py-1.5 rounded-lg text-xs text-text-secondary hover:text-indigo-400 hover:bg-indigo-950/30 flex items-center space-x-2 transition"
-                >
-                  <span>🤖 多模型博弈</span>
-                </button>
-                <button
-                  onClick={openStudioModal}
-                  className="w-full text-left px-2.5 py-1.5 rounded-lg text-xs text-text-secondary hover:text-cyan-400 hover:bg-cyan-950/30 flex items-center space-x-2 transition"
-                >
-                  <span>✨ 策略实验室</span>
+                  <span>📖 每日离线复盘</span>
                 </button>
                 <button
                   onClick={() => setIsNewsModalOpen(true)}
                   className="w-full text-left px-2.5 py-1.5 rounded-lg text-xs text-text-secondary hover:text-blue-400 hover:bg-blue-950/30 flex items-center space-x-2 transition"
                 >
-                  <span>📰 全球情报</span>
+                  <span>📰 黑天鹅防守情报</span>
                 </button>
               </div>
             </div>
@@ -790,10 +681,10 @@ export const App: React.FC = () => {
 
 
 
-          {/* AI 全自动量化操盘控制与收益中枢 */}
+          {/* 双引擎自动操盘与影子盘主控中枢 */}
           <div className="flex-1 overflow-hidden">
             <ErrorBoundary fallbackTitle="自动量化操盘控制面板加载异常">
-              <AutoPilotCard />
+              <AutoPilotCard onOpenDualEngine={() => setIsBacktestModalOpen(true)} />
             </ErrorBoundary>
           </div>
         </section>
@@ -936,7 +827,7 @@ export const App: React.FC = () => {
         </div>
       )}
 
-      {/* 8. v3.0 核心全景模态窗挂载 */}
+      {/* 双引擎组合看板与同构回测模态窗 */}
       <BacktestModal
         isOpen={isBacktestModalOpen}
         onClose={() => setIsBacktestModalOpen(false)}
@@ -950,22 +841,6 @@ export const App: React.FC = () => {
         isOpen={isDailyReviewModalOpen}
         onClose={() => setIsDailyReviewModalOpen(false)}
       />
-      <ConsensusModal
-        isOpen={isConsensusModalOpen}
-        onClose={() => setIsConsensusModalOpen(false)}
-        activeSymbol={activeSymbol}
-      />
-      {/* 9. v3.5 AI Quant Studio 策略实验室模态窗挂载 */}
-      <QuantStudioModal
-        isOpen={isStudioModalOpen}
-        onClose={closeStudioModal}
-      />
-      {/* 10. v3.6 AI 决策员工看板模态窗挂载 */}
-      <AgentTeamModal
-        isOpen={isTeamModalOpen}
-        onClose={() => setIsTeamModalOpen(false)}
-      />
-      {/* 11. 极简量化运维监控看板与对账中心模态窗挂载 */}
       <OpsMetricsModal
         isOpen={isOpsMetricsModalOpen}
         onClose={() => setIsOpsMetricsModalOpen(false)}

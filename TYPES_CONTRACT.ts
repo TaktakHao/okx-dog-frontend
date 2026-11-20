@@ -1506,4 +1506,186 @@ export interface SubscribeFocusResponse {
   subscribed_symbols: string[];
 }
 
+/**
+ * v8.0 全市场资金流雷达、板块轮动与极值包络契约 (100% 对齐 contracts/schemas/capital_flow.json)
+ */
+export type SectorCategory =
+  | 'MAJOR'
+  | 'L1_L2'
+  | 'AI_DEPIN'
+  | 'MEME'
+  | 'DEFI'
+  | 'RWA'
+  | 'GAMEFI_NFT'
+  | 'TRADFI'
+  | 'OTHER';
+
+export type RotationFocusMode =
+  | 'SINGLE_SYMBOL'
+  | 'MULTI_SYMBOL_POOL'
+  | 'DYNAMIC_CAPITAL_FLOW';
+
+export type PoolRole =
+  | 'LONG_ALPHA'
+  | 'SHORT_BETA'
+  | 'PINNED'
+  | 'OVERHEATED_GUARD'
+  | 'OVERSOLD_GUARD'
+  | 'WATCH';
+
+export interface ContrarianPercentileMatrix {
+  pct_1h: number;
+  pct_24h: number;
+  pct_7d: number;
+  pct_20d: number;
+  regime_hint: 'EXTREME_INFLOW_FOMO' | 'HEALTHY_INFLOW' | 'NEUTRAL' | 'HEALTHY_OUTFLOW' | 'EXTREME_OUTFLOW_ICE';
+}
+
+export interface DataSourceDiagnostics {
+  status: 'OK' | 'DEGRADED' | 'OFFLINE_CACHE';
+  channel: string;
+  scanned_symbols: number;
+  qualified_symbols: number;
+  derivatives_enriched: number;
+  latency_ms: number;
+  updated_at: number;
+  error_message?: string | null;
+}
+
+export interface SymbolFlowSnapshot {
+  symbol: string;
+  sector: SectorCategory;
+  last_price: number;
+  change_24h_pct: number;
+  rs_alpha_vs_btc_pct: number;
+  vol_usdt_24h: number;
+  vol_share_pct: number;
+  intraday_intensity_pct: number;
+  shift_ratio: number;
+  oi_usdt: number;
+  oi_change_1h_pct: number;
+  net_taker_flow_usdt: number;
+  net_taker_ratio: number;
+  top_trader_ls_ratio?: number | null;
+  funding_rate?: number | null;
+  spread_pct?: number | null;
+  flow_score: number;
+  local_regime: 'TRENDING_UP' | 'TRENDING_DOWN' | 'RANGING' | 'VOLATILE_BREAKOUT';
+  pool_role: PoolRole;
+  reason: string;
+}
+
+export interface SectorFlowSnapshot {
+  sector: SectorCategory;
+  sector_name: string;
+  symbol_count: number;
+  avg_change_24h_pct: number;
+  rs_alpha_vs_btc_pct: number;
+  total_vol_usdt_24h: number;
+  vol_share_pct: number;
+  total_oi_usdt: number;
+  oi_share_pct: number;
+  attention_shift_ratio: number;
+  net_taker_flow_usdt: number;
+  avg_oi_change_1h_pct: number;
+  flow_score: number;
+  percentiles: ContrarianPercentileMatrix;
+  leader_symbol: string;
+  laggard_symbol: string;
+}
+
+export interface DynamicRotationPools {
+  long_alpha_pool: SymbolFlowSnapshot[];
+  short_beta_pool: SymbolFlowSnapshot[];
+  pinned_pool: SymbolFlowSnapshot[];
+  blocked_guard_pool: SymbolFlowSnapshot[];
+}
+
+export interface CapitalFlowConfig {
+  min_24h_volume_usdt: number;
+  max_spread_pct: number;
+  long_pool_size: number;
+  short_pool_size: number;
+  max_same_sector_same_direction: number;
+  allow_tradfi_short: boolean;
+  anti_fomo_change_24h_cap: number;
+  contrarian_extreme_pct: number;
+  excluded_sectors: SectorCategory[];
+  blacklist_symbols: string[];
+}
+
+export interface CapitalFlowRadarOverview {
+  timestamp: number;
+  btc_price: number;
+  btc_change_24h_pct: number;
+  market_breadth_up_pct: number;
+  macro_regime: 'TRENDING_UP' | 'TRENDING_DOWN' | 'RANGING' | 'VOLATILE_BREAKOUT';
+  total_vol_usdt_24h: number;
+  vol_vs_20d_avg_pct: number;
+  intraday_intensity_pct: number;
+  intraday_beat_days: number;
+  total_net_taker_flow_usdt: number;
+  market_percentiles: ContrarianPercentileMatrix;
+  sectors: SectorFlowSnapshot[];
+  top_symbols: SymbolFlowSnapshot[];
+  rotation_pools: DynamicRotationPools;
+  diagnostics: DataSourceDiagnostics;
+  config: CapitalFlowConfig;
+}
+
+export interface IntradayIntensityPoint {
+  ts: number;
+  label: string;
+  btc_price: number;
+  current_vol_usdt: number;
+  avg_20d_vol_usdt: number;
+  intensity_pct: number;
+}
+
+export interface NetFlowEnvelopePoint {
+  ts: number;
+  label: string;
+  btc_price: number;
+  cum_net_flow_usdt: number;
+  avg_20d_cum_flow_usdt: number;
+  max_20d_inflow_usdt: number;
+  max_20d_outflow_usdt: number;
+  percentile: number;
+}
+
+export interface HistoryFlowPoint {
+  date: string;
+  btc_close: number;
+  inflow_usdt: number;
+  outflow_usdt: number;
+  net_flow_usdt: number;
+  ma_net_flow_usdt: number;
+  vol_usdt: number;
+  percentile: number;
+}
+
+export interface CapitalFlowSeriesResponse {
+  scope: string;
+  ma_window: 10 | 20 | 60;
+  intraday_intensity: IntradayIntensityPoint[];
+  net_flow_envelope: NetFlowEnvelopePoint[];
+  history_series: HistoryFlowPoint[];
+}
+
+export interface ExtremeFlowEvent {
+  rank: number;
+  date: string;
+  net_flow_usdt: number;
+  vol_usdt: number;
+  btc_close: number;
+  top_sector: string;
+  is_recent: boolean;
+}
+
+export interface ExtremeFlowLeaderboardResponse {
+  scope: string;
+  top_inflows: ExtremeFlowEvent[];
+  top_outflows: ExtremeFlowEvent[];
+}
+
 

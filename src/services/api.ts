@@ -39,7 +39,6 @@ import {
   RiskAuditLogModel,
   PaperAccountInfo,
   SymbolListResponse,
-  CompanyQuotaOverview,
   InstrumentSearchResponse,
   SubscribeFocusResponse,
 } from '../types';
@@ -584,6 +583,32 @@ export const backtestApi = {
   getExperiments: (limit: number = 20): Promise<any[]> => {
     return request<any[]>(`/backtest/experiments?limit=${limit}`);
   },
+  runGate2A: (daysBack: number = 1095, initialBalance: number = 6000, leverage: number = 3): Promise<any> => {
+    return request<any>(`/backtest/gate2a-verify?days_back=${daysBack}&initial_balance=${initialBalance}&leverage=${leverage}`, {
+      method: 'POST',
+    });
+  },
+  runGate2B: (initialBalance: number = 3000): Promise<any> => {
+    return request<any>(`/backtest/gate2b-verify?initial_balance=${initialBalance}`, {
+      method: 'POST',
+    });
+  },
+  getPortfolioSlots: (): Promise<any> => {
+    return request<any>('/backtest/portfolio/slots');
+  },
+  scanCarry: (): Promise<any> => {
+    return request<any>('/backtest/carry/scan');
+  },
+  setCarryMode: (mode: 'SEMI_AUTO' | 'FULL_AUTO'): Promise<{ execution_mode: string }> => {
+    return request<{ execution_mode: string }>(`/backtest/carry/mode?mode=${mode}`, {
+      method: 'POST',
+    });
+  },
+  confirmCarryProposal: (proposalId: string): Promise<any> => {
+    return request<any>(`/backtest/carry/confirm/${encodeURIComponent(proposalId)}`, {
+      method: 'POST',
+    });
+  },
 };
 
 // =============================================================================
@@ -630,17 +655,8 @@ export const knowledgeBaseApi = {
 };
 
 // =============================================================================
-// 12. 模块 D：多智能体博弈与 Telegram API (Consensus & Telegram)
+// 12. Telegram 告警推送网关 API
 // =============================================================================
-
-export const consensusApi = {
-  analyze: (payload: { symbol: string; snapshot?: any }): Promise<import('../types').MultiAgentConsensusResponse> => {
-    return request<import('../types').MultiAgentConsensusResponse>('/consensus/analyze', {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    });
-  },
-};
 
 export const telegramApi = {
   getConfig: (): Promise<import('../types').TelegramConfig> => {
@@ -661,147 +677,24 @@ export const telegramApi = {
 };
 
 // =============================================================================
-// 13. v3.5 模块：AI Quant Studio & Codex Harness API
+// 13. Antigravity 本地 CLI 模型动态读取 API (用于离线复盘/新闻防守模型配置)
 // =============================================================================
 
-export interface StrategyTemplateItem {
+export interface AntigravityCliModelItem {
   id: string;
   name: string;
-  description: string;
-  code: string;
 }
 
-export interface BacktestMetrics {
-  total_return_pct: number;
-  annualized_return_pct: number;
-  max_drawdown_pct: number;
-  sharpe_ratio: number;
-  calmar_ratio: number;
-  win_rate_pct: number;
-  profit_factor: number;
-  total_trades: number;
-  total_bars: number;
+export interface AntigravityCliModelsResponse {
+  models: AntigravityCliModelItem[];
+  source: 'cli' | 'fallback';
+  cli_available: boolean;
+  cli_path: string;
 }
 
-export interface EquityCurvePoint {
-  timestamp: number;
-  equity: number;
-  price: number;
-}
-
-export interface TradeSignalPoint {
-  timestamp: number;
-  action: 'BUY' | 'SELL' | 'CLOSE';
-  price: number;
-}
-
-export interface StrategyGenerationResult {
-  strategy_id: string;
-  strategy_name: string;
-  prompt: string;
-  code: string;
-  ast_passed: boolean;
-  attempts: number;
-  status: string;
-  metrics: BacktestMetrics | null;
-  equity_curve: EquityCurvePoint[];
-  trade_signals: TradeSignalPoint[];
-  error_message: string | null;
-}
-
-export const studioApi = {
-  getTemplates: (): Promise<StrategyTemplateItem[]> => {
-    return request<StrategyTemplateItem[]>('/studio/templates');
-  },
-  generateStrategy: (payload: {
-    prompt: string;
-    symbol?: string;
-    timeframe?: string;
-    max_retries?: number;
-  }): Promise<StrategyGenerationResult> => {
-    return request<StrategyGenerationResult>('/studio/generate-strategy', {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    });
-  },
-  backtestCustom: (payload: {
-    code: string;
-    symbol?: string;
-    timeframe?: string;
-  }): Promise<StrategyGenerationResult> => {
-    return request<StrategyGenerationResult>('/studio/backtest-custom', {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    });
-  },
-  runBenchmark: (): Promise<any> => {
-    return request<any>('/studio/benchmark-eval', {
-      method: 'POST',
-    });
-  },
-};
-
-// =============================================================================
-// 14. v3.6 模块：多智能体自适应强化进化与 AI 员工看板 API
-// =============================================================================
-
-import { TeamEvolutionStatus, EvolutionSnapshot, DatasetStats, DatasetExportResult, TeamDiagnosisReport } from '../types/evolution';
-
-export const evolutionApi = {
-  getTeamStatus: (): Promise<TeamEvolutionStatus> => {
-    return request<TeamEvolutionStatus>('/evolution/team');
-  },
-  getHistory: (): Promise<EvolutionSnapshot[]> => {
-    return request<EvolutionSnapshot[]>('/evolution/history');
-  },
-  rollbackToBaseline: (): Promise<TeamEvolutionStatus> => {
-    return request<TeamEvolutionStatus>('/evolution/rollback', {
-      method: 'POST',
-    });
-  },
-  resetTeam: (): Promise<TeamEvolutionStatus> => {
-    return request<TeamEvolutionStatus>('/evolution/reset', {
-      method: 'POST',
-    });
-  },
-  triggerDiagnosis: (): Promise<{ report: TeamDiagnosisReport; team_status: TeamEvolutionStatus }> => {
-    return request<{ report: TeamDiagnosisReport; team_status: TeamEvolutionStatus }>('/evolution/diagnose', {
-      method: 'POST',
-    });
-  },
-  getDiagnosisReport: (): Promise<TeamDiagnosisReport | null> => {
-    return request<TeamDiagnosisReport | null>('/evolution/diagnosis-report');
-  },
-  getDatasetStats: (): Promise<DatasetStats> => {
-    return request<DatasetStats>('/evolution/dataset/stats');
-  },
-  exportDataset: (refineFirst: boolean = false, batchSize: number = 20): Promise<DatasetExportResult> => {
-    return request<DatasetExportResult>('/evolution/dataset/export', {
-      method: 'POST',
-      body: JSON.stringify({ refine_first: refineFirst, batch_size: batchSize }),
-    });
-  },
-  getDownloadUrl: (filename: string): string => {
-    return `/api/v1/evolution/dataset/download/${encodeURIComponent(filename)}`;
-  },
-};
-
-// =============================================================================
-// 12. Paperclip 虚拟公司与员工战绩配额 API
-// =============================================================================
-
-export const paperclipApi = {
-  getCompanyOrg: (): Promise<any> => {
-    return request<any>('/paperclip/org');
-  },
-  getQuotaOverview: (): Promise<CompanyQuotaOverview> => {
-    return request<CompanyQuotaOverview>('/paperclip/quota/overview');
-  },
-  triggerAnomalyTask: (data: any): Promise<any> => {
-    return request<any>('/paperclip/task/anomaly', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
+export const antigravityApi = {
+  getModels: (refresh: boolean = false): Promise<AntigravityCliModelsResponse> => {
+    return request<AntigravityCliModelsResponse>(`/antigravity/models?refresh=${refresh ? 'true' : 'false'}`);
   },
 };
 
